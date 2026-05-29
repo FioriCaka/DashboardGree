@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gree-postgres
+    environment:
+      POSTGRES_DB: gree_app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: fiori267
+    ports:
+      - "5433:5432"
+    volumes:
+      - gree_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gree_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  gree_postgres_data:
