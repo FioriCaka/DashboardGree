@@ -56,6 +56,8 @@ create table if not exists products (
   sku varchar(190) not null unique,
   category_id bigint references categories(id) on delete set null,
   price numeric(10,2) not null default 0,
+  old_price numeric(10,2),
+  image varchar(500),
   stock integer not null default 0,
   in_store integer not null default 0,
   in_hand integer not null default 0,
@@ -184,8 +186,9 @@ create table if not exists tickets (
   title varchar(190) not null,
   description text not null,
   product_id bigint references products(id) on delete set null,
+  client_id bigint references client(id) on delete set null,
   status varchar(40) not null default 'new',
-  opened_by bigint not null references users(id) on delete cascade,
+  opened_by bigint references users(id) on delete set null,
   assigned_to bigint references users(id) on delete set null,
   photos jsonb,
   videos jsonb,
@@ -203,6 +206,7 @@ create table if not exists complaints (
   client_phone varchar(50),
   client_email varchar(190),
   location varchar(255),
+  client_id bigint references client(id) on delete set null,
   status_id bigint references statuses(id) on delete set null,
   priority_id bigint references priorities(id) on delete set null,
   creator_id bigint references users(id) on delete set null,
@@ -211,7 +215,15 @@ create table if not exists complaints (
   updated_at timestamptz not null default now()
 );
 
+alter table if exists products add column if not exists old_price numeric(10,2);
+alter table if exists products add column if not exists image varchar(500);
+alter table if exists tickets add column if not exists client_id bigint references client(id) on delete set null;
+alter table if exists tickets alter column opened_by drop not null;
+alter table if exists complaints add column if not exists client_id bigint references client(id) on delete set null;
+
 create index if not exists idx_sales_status on sales(status_id);
 create index if not exists idx_tasks_status on tasks(status_id);
 create index if not exists idx_complaints_status_created on complaints(status_id, created_at);
 create index if not exists idx_tickets_status on tickets(status);
+create index if not exists idx_tickets_client on tickets(client_id);
+create index if not exists idx_complaints_client on complaints(client_id);

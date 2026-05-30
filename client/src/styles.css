@@ -8,7 +8,14 @@
   --primary: #15803d;
   --primary-dark: #10602f;
   --danger: #b42318;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 
 * {
@@ -265,6 +272,44 @@ th {
   margin: 18px 0;
 }
 
+.categoryModal {
+  width: min(620px, 100%);
+}
+
+.categoryManager {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: end;
+  margin: 18px 0;
+}
+
+.categoryList {
+  display: grid;
+  gap: 8px;
+}
+
+.categoryRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.categoryRow span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.categoryRow div {
+  display: flex;
+  gap: 8px;
+}
+
 label {
   display: grid;
   gap: 7px;
@@ -384,7 +429,9 @@ select[multiple] {
   }
 
   .toolbar,
-  .formGrid {
+  .formGrid,
+  .categoryManager,
+  .categoryRow {
     grid-template-columns: 1fr;
     flex-wrap: wrap;
   }

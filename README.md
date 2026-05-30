@@ -24,6 +24,10 @@ npm run db:seed
 npm run dev
 ```
 
+The dashboard runs on `http://localhost:5173` and the API runs on `http://localhost:4000`.
+The Expo mobile app can use the same API, for example `EXPO_PUBLIC_API_URL=http://YOUR_PC_IP:4000/api`.
+If the API is already running for the mobile app, `npm run dev` will reuse it and only start the dashboard client.
+
 Default seeded accounts use password `asdasdasd`:
 
 - `admin@example.com`

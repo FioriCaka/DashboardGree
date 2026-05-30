@@ -40,19 +40,30 @@ export async function api(path, options = {}) {
 }
 
 export const authApi = {
-  login: (payload) => api("/login", { method: "POST", body: JSON.stringify(payload) }),
-  register: (payload) => api("/register", { method: "POST", body: JSON.stringify(payload) }),
+  login: (payload) =>
+    api("/login", { method: "POST", body: JSON.stringify(payload) }),
+  register: (payload) =>
+    api("/register", { method: "POST", body: JSON.stringify(payload) }),
   profile: () => api("/profile"),
-  updateProfile: (payload) => api("/profile", { method: "PUT", body: JSON.stringify(payload) }),
-  changePassword: (payload) => api("/profile/change-password", { method: "POST", body: JSON.stringify(payload) }),
+  updateProfile: (payload) =>
+    api("/profile", { method: "PUT", body: JSON.stringify(payload) }),
+  changePassword: (payload) =>
+    api("/profile/change-password", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };
 
 export const resourceApi = {
-  list: (resource, params = {}) => api(`/${resource}?${new URLSearchParams(params)}`),
+  list: (resource, params = {}) =>
+    api(`/${resource}?${new URLSearchParams(params)}`),
   show: (resource, id) => api(`/${resource}/${id}`),
-  create: (resource, payload) => api(`/${resource}`, { method: "POST", body: JSON.stringify(payload) }),
-  update: (resource, id, payload) => api(`/${resource}/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  create: (resource, payload) =>
+    api(`/${resource}`, { method: "POST", body: JSON.stringify(payload) }),
+  update: (resource, id, payload) =>
+    api(`/${resource}/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   remove: (resource, id) => api(`/${resource}/${id}`, { method: "DELETE" }),
-  restore: (resource, id) => api(`/${resource}/${id}/restore`, { method: "POST" }),
+  restore: (resource, id) =>
+    api(`/${resource}/${id}/restore`, { method: "POST" }),
   lookups: () => api("/lookups"),
 };

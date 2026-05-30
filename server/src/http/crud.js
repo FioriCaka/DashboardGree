@@ -2,28 +2,38 @@ import { z } from "zod";
 import { query, transaction } from "../db/pool.js";
 import { HttpError, notFound } from "./errors.js";
 
-const nullableNumber = () => z.preprocess(
-  (value) => (value === "" || value === undefined ? null : value),
-  z.coerce.number().nullable(),
-);
+const nullableNumber = () =>
+  z.preprocess(
+    (value) => (value === "" || value === undefined ? null : value),
+    z.coerce.number().nullable(),
+  );
 
 const optionalNullableNumber = () => nullableNumber().optional();
-const optionalEnum = (values, fallback) => z.preprocess(
-  (value) => (value === "" || value === null || value === undefined ? undefined : value),
-  z.enum(values).default(fallback),
-);
+const optionalEnum = (values, fallback) =>
+  z.preprocess(
+    (value) =>
+      value === "" || value === null || value === undefined ? undefined : value,
+    z.enum(values).default(fallback),
+  );
 
 function toSnake(value) {
   return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
 
 function pick(input, keys) {
-  return Object.fromEntries(keys.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+  return Object.fromEntries(
+    keys
+      .filter((key) => input[key] !== undefined)
+      .map((key) => [key, input[key]]),
+  );
 }
 
 export function parsePagination(req) {
   const page = Math.max(Number(req.query.page ?? 1), 1);
-  const perPage = Math.min(Math.max(Number(req.query.per_page ?? req.query.perPage ?? 15), 1), 100);
+  const perPage = Math.min(
+    Math.max(Number(req.query.per_page ?? req.query.perPage ?? 15), 1),
+    100,
+  );
   return { page, perPage, offset: (page - 1) * perPage };
 }
 
@@ -52,10 +62,15 @@ export function resourceRouter(config) {
       const where = softDelete ? [`${table}.deleted_at is null`] : [];
       if (req.query.search && searchColumns.length) {
         params.push(`%${String(req.query.search).toLowerCase()}%`);
-        where.push(`(${searchColumns.map((column) => `lower(coalesce(${column}::text, '')) like $${params.length}`).join(" or ")})`);
+        where.push(
+          `(${searchColumns.map((column) => `lower(coalesce(${column}::text, '')) like $${params.length}`).join(" or ")})`,
+        );
       }
       const whereSql = where.length ? `where ${where.join(" and ")}` : "";
-      const totalResult = await query(`select count(*)::int as total from ${table} ${listJoins} ${whereSql}`, params);
+      const totalResult = await query(
+        `select count(*)::int as total from ${table} ${listJoins} ${whereSql}`,
+        params,
+      );
       const result = await query(
         `select ${select} from ${table} ${listJoins} ${whereSql} ${groupBy} order by ${orderBy} limit $${params.length + 1} offset $${params.length + 2}`,
         [...params, perPage, offset],
@@ -85,8 +100,12 @@ export function resourceRouter(config) {
 
   async function create(req, res, next) {
     try {
-      const payload = schema ? schema.parse(req.body) : pick(req.body, writable);
-      const prepared = beforeCreate ? await beforeCreate(payload, req) : payload;
+      const payload = schema
+        ? schema.parse(req.body)
+        : pick(req.body, writable);
+      const prepared = beforeCreate
+        ? await beforeCreate(payload, req)
+        : payload;
       const keys = Object.keys(pick(prepared, writable));
       if (!keys.length) throw new HttpError(422, "No writable fields supplied");
       const columns = keys.map(toSnake);
@@ -105,8 +124,12 @@ export function resourceRouter(config) {
 
   async function update(req, res, next) {
     try {
-      const payload = schema ? schema.partial().parse(req.body) : pick(req.body, writable);
-      const prepared = beforeUpdate ? await beforeUpdate(payload, req) : payload;
+      const payload = schema
+        ? schema.partial().parse(req.body)
+        : pick(req.body, writable);
+      const prepared = beforeUpdate
+        ? await beforeUpdate(payload, req)
+        : payload;
       const keys = Object.keys(pick(prepared, writable));
       if (!keys.length) throw new HttpError(422, "No writable fields supplied");
       const values = keys.map((key) => prepared[key]);
@@ -126,8 +149,13 @@ export function resourceRouter(config) {
   async function destroy(req, res, next) {
     try {
       const result = softDelete
-        ? await query(`update ${table} set deleted_at = now(), updated_at = now() where ${id} = $1 and deleted_at is null returning *`, [req.params[id] ?? req.params.id])
-        : await query(`delete from ${table} where ${id} = $1 returning *`, [req.params[id] ?? req.params.id]);
+        ? await query(
+            `update ${table} set deleted_at = now(), updated_at = now() where ${id} = $1 and deleted_at is null returning *`,
+            [req.params[id] ?? req.params.id],
+          )
+        : await query(`delete from ${table} where ${id} = $1 returning *`, [
+            req.params[id] ?? req.params.id,
+          ]);
       if (!result.rows[0]) throw notFound();
       res.json({ message: "Deleted", data: result.rows[0] });
     } catch (error) {
@@ -137,7 +165,10 @@ export function resourceRouter(config) {
 
   async function restore(req, res, next) {
     try {
-      const result = await query(`update ${table} set deleted_at = null, updated_at = now() where ${id} = $1 returning *`, [req.params.id]);
+      const result = await query(
+        `update ${table} set deleted_at = null, updated_at = now() where ${id} = $1 returning *`,
+        [req.params.id],
+      );
       if (!result.rows[0]) throw notFound();
       res.json({ message: "Restored", data: result.rows[0] });
     } catch (error) {
@@ -150,7 +181,9 @@ export function resourceRouter(config) {
 
 export async function syncTaskTechnicians(taskId, technicianIds = []) {
   await transaction(async (client) => {
-    await client.query("delete from task_technician where task_id = $1", [taskId]);
+    await client.query("delete from task_technician where task_id = $1", [
+      taskId,
+    ]);
     for (const technicianId of technicianIds) {
       await client.query(
         "insert into task_technician (task_id, technician_id) values ($1, $2) on conflict do nothing",
@@ -171,7 +204,10 @@ export const schemas = {
     experience: z.string().optional().nullable(),
     roleId: optionalNullableNumber(),
     createdBy: optionalNullableNumber(),
-    password: z.preprocess((value) => (value === "" || value === null ? undefined : value), z.string().min(8).optional()),
+    password: z.preprocess(
+      (value) => (value === "" || value === null ? undefined : value),
+      z.string().min(8).optional(),
+    ),
   }),
   client: z.object({
     name: z.string().min(1),
@@ -189,9 +225,14 @@ export const schemas = {
     sku: z.string().min(1),
     categoryId: optionalNullableNumber(),
     price: z.coerce.number().default(0),
+    oldPrice: optionalNullableNumber(),
+    image: z.string().optional().nullable(),
     stock: z.coerce.number().int().default(0),
     inStore: z.coerce.number().int().default(0),
     inHand: z.coerce.number().int().default(0),
+  }),
+  category: z.object({
+    name: z.string().min(1),
   }),
   sale: z.object({
     productId: z.coerce.number(),
@@ -222,7 +263,13 @@ export const schemas = {
     taskId: z.coerce.number(),
     technicianId: optionalNullableNumber(),
     scheduledAt: z.string(),
-    status: z.preprocess((value) => (value === "" || value === null || value === undefined ? "scheduled" : value), z.string()),
+    status: z.preprocess(
+      (value) =>
+        value === "" || value === null || value === undefined
+          ? "scheduled"
+          : value,
+      z.string(),
+    ),
     notes: z.string().optional().nullable(),
     photos: z.array(z.string()).optional().nullable(),
     videos: z.array(z.string()).optional().nullable(),
@@ -239,6 +286,7 @@ export const schemas = {
     title: z.string().min(1),
     description: z.string().min(1),
     productId: optionalNullableNumber(),
+    clientId: optionalNullableNumber(),
     status: optionalEnum(["new", "in_progress", "resolved"], "new"),
     openedBy: optionalNullableNumber(),
     assignedTo: optionalNullableNumber(),
@@ -253,6 +301,7 @@ export const schemas = {
     clientPhone: z.string().optional().nullable(),
     clientEmail: z.string().optional().nullable(),
     location: z.string().optional().nullable(),
+    clientId: optionalNullableNumber(),
     statusId: optionalNullableNumber(),
     priorityId: optionalNullableNumber(),
     creatorId: optionalNullableNumber(),

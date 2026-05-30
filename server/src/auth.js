@@ -13,7 +13,9 @@ const registerSchema = z.object({
   address: z.string().optional().nullable(),
   nipt: z.string().optional().nullable(),
   password: z.string().min(8),
-  role: z.enum(["client", "admin", "teknik", "shites", "menaxher"]).default("client"),
+  role: z
+    .enum(["client", "admin", "teknik", "shites", "menaxher"])
+    .default("client"),
 });
 
 const loginSchema = z.object({
@@ -61,7 +63,9 @@ export function requireRoles(...roles) {
   return (req, _res, next) => {
     if (!req.user) return next(new HttpError(401, "Authentication required"));
     if (!roles.includes(req.user.role)) {
-      return next(new HttpError(403, "You are not authorized to access this resource."));
+      return next(
+        new HttpError(403, "You are not authorized to access this resource."),
+      );
     }
     next();
   };
@@ -71,7 +75,9 @@ export async function register(req, res, next) {
   try {
     const payload = registerSchema.parse(req.body);
     const password = await bcrypt.hash(payload.password, 10);
-    const roleResult = await query("select id from roles where name = $1", [payload.role]);
+    const roleResult = await query("select id from roles where name = $1", [
+      payload.role,
+    ]);
     const roleId = roleResult.rows[0]?.id;
     const table = payload.role === "client" ? "client" : "users";
     const result = await query(
@@ -83,8 +89,25 @@ export async function register(req, res, next) {
            values ($1, $2, $3, $4, $5, $6, $7)
            returning *, 'user' as type`,
       table === "client"
-        ? [payload.name, payload.last_name ?? "", payload.email, payload.phone_number, payload.address, payload.nipt, password, roleId]
-        : [payload.name, payload.last_name, payload.email, payload.phone_number, payload.address, password, roleId],
+        ? [
+            payload.name,
+            payload.last_name ?? "",
+            payload.email,
+            payload.phone_number,
+            payload.address,
+            payload.nipt,
+            password,
+            roleId,
+          ]
+        : [
+            payload.name,
+            payload.last_name,
+            payload.email,
+            payload.phone_number,
+            payload.address,
+            password,
+            roleId,
+          ],
     );
     const user = { ...result.rows[0], role: payload.role };
     res.status(201).json({ token: signToken(user), user: sanitizeUser(user) });
@@ -138,7 +161,10 @@ export async function login(req, res, next) {
       [payload.email],
     );
     const user = result.rows[0];
-    if (!user || !(await bcrypt.compare(payload.password, user.password ?? ""))) {
+    if (
+      !user ||
+      !(await bcrypt.compare(payload.password, user.password ?? ""))
+    ) {
       throw new HttpError(401, "Invalid credentials");
     }
     res.json({ token: signToken(user), user: sanitizeUser(user) });
@@ -153,17 +179,44 @@ export function profile(req, res) {
 
 export async function updateProfile(req, res, next) {
   try {
-    const allowed = ["name", "last_name", "email", "phone_number", "address", "city", "experience", "nipt"];
-    const entries = Object.entries(req.body).filter(([key]) => allowed.includes(key));
+    const userFields = [
+      "name",
+      "last_name",
+      "email",
+      "phone_number",
+      "address",
+      "city",
+      "experience",
+    ];
+    const clientFields = [
+      "name",
+      "last_name",
+      "email",
+      "phone_number",
+      "address",
+      "nipt",
+    ];
+    const allowed = req.user.type === "client" ? clientFields : userFields;
+    const entries = Object.entries(req.body).filter(([key]) =>
+      allowed.includes(key),
+    );
     if (!entries.length) return res.json({ user: sanitizeUser(req.user) });
-    const sets = entries.map(([key], index) => `${key} = $${index + 1}`).join(", ");
+    const sets = entries
+      .map(([key], index) => `${key} = $${index + 1}`)
+      .join(", ");
     const values = entries.map(([, value]) => value);
     const table = req.user.type === "client" ? "client" : "users";
     const result = await query(
       `update ${table} set ${sets}, updated_at = now() where id = $${values.length + 1} returning *`,
       [...values, req.user.id],
     );
-    res.json({ user: sanitizeUser({ ...result.rows[0], role: req.user.role, type: req.user.type }) });
+    res.json({
+      user: sanitizeUser({
+        ...result.rows[0],
+        role: req.user.role,
+        type: req.user.type,
+      }),
+    });
   } catch (error) {
     next(error);
   }
@@ -171,14 +224,22 @@ export async function updateProfile(req, res, next) {
 
 export async function changePassword(req, res, next) {
   try {
-    const schema = z.object({ current_password: z.string(), password: z.string().min(8) });
+    const schema = z.object({
+      current_password: z.string(),
+      password: z.string().min(8),
+    });
     const payload = schema.parse(req.body);
-    if (!(await bcrypt.compare(payload.current_password, req.user.password ?? ""))) {
+    if (
+      !(await bcrypt.compare(payload.current_password, req.user.password ?? ""))
+    ) {
       throw new HttpError(422, "Current password is incorrect");
     }
     const password = await bcrypt.hash(payload.password, 10);
     const table = req.user.type === "client" ? "client" : "users";
-    await query(`update ${table} set password = $1, updated_at = now() where id = $2`, [password, req.user.id]);
+    await query(
+      `update ${table} set password = $1, updated_at = now() where id = $2`,
+      [password, req.user.id],
+    );
     res.json({ message: "Password updated successfully." });
   } catch (error) {
     next(error);
