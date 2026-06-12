@@ -14,12 +14,13 @@ import {
   updateProfile,
 } from "./auth.js";
 import resourceRoutes from "./routes/resources.js";
+import shopRoutes from "./routes/shop.js";
 import { errorHandler } from "./http/errors.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(cors({ origin: isAllowedOrigin, credentials: true }));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -40,6 +41,7 @@ app.put("/api/profile", updateProfile);
 app.post("/api/profile/change-password", changePassword);
 app.post("/api/logout", (_req, res) => res.json({ message: "Logged out" }));
 app.use("/api", resourceRoutes);
+app.use("/api", shopRoutes);
 
 app.use((_req, res) => res.status(404).json({ message: "Route not found" }));
 app.use(errorHandler);

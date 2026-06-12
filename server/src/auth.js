@@ -62,12 +62,10 @@ export async function authRequired(req, _res, next) {
 export function requireRoles(...roles) {
   return (req, _res, next) => {
     if (!req.user) return next(new HttpError(401, "Authentication required"));
-    if (!roles.includes(req.user.role)) {
-      return next(
-        new HttpError(403, "You are not authorized to access this resource."),
-      );
-    }
-    next();
+    if (req.user.role === "admin" || roles.includes(req.user.role)) return next();
+    return next(
+      new HttpError(403, "You are not authorized to access this resource."),
+    );
   };
 }
 

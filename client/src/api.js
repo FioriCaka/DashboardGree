@@ -67,3 +67,24 @@ export const resourceApi = {
     api(`/${resource}/${id}/restore`, { method: "POST" }),
   lookups: () => api("/lookups"),
 };
+
+export const productImageApi = {
+  upload: (productId, file) => {
+    const token = getToken();
+    const body = new FormData();
+    body.append("image", file);
+    return fetch(`${API_URL}/products/${productId}/images`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body,
+    }).then(async (res) => {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message ?? "Upload failed");
+      return data;
+    });
+  },
+  remove: (productId, imageId) =>
+    api(`/products/${productId}/images/${imageId}`, { method: "DELETE" }),
+  setMain: (productId, imageId) =>
+    api(`/products/${productId}/images/${imageId}/set-main`, { method: "PATCH" }),
+};

@@ -1,5 +1,9 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import multer from "multer";
 import { query } from "../db/pool.js";
 import {
   parsePagination,
@@ -7,7 +11,33 @@ import {
   schemas,
   syncTaskTechnicians,
 } from "../http/crud.js";
+import { notFound } from "../http/errors.js";
 import { requireRoles } from "../auth.js";
+import { config } from "../config.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadsRoot = path.join(__dirname, "..", "..", config.uploadDir);
+
+const productImageStorage = multer.diskStorage({
+  destination: async (_req, _file, cb) => {
+    const dir = path.join(uploadsRoot, "products");
+    await fs.mkdir(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+  },
+});
+
+const uploadProductImage = multer({
+  storage: productImageStorage,
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)) cb(null, true);
+    else cb(new Error("Only JPEG, PNG, WebP or GIF images are allowed"));
+  },
+}).single("image");
 
 const router = Router();
 
@@ -82,6 +112,8 @@ const clients = resourceRouter({
     "client.email",
     "client.phone_number",
     "client.nipt",
+    "client.city",
+    "client.contact_person",
   ],
   writable: [
     "name",
@@ -89,6 +121,11 @@ const clients = resourceRouter({
     "email",
     "phoneNumber",
     "address",
+    "city",
+    "contactPerson",
+    "clientStatus",
+    "notes",
+    "clientType",
     "nipt",
     "roleId",
     "createdBy",
@@ -98,28 +135,145 @@ const clients = resourceRouter({
 
 const products = resourceRouter({
   table: "products",
-  select: "products.*, categories.name as category_name",
-  listJoins: "left join categories on categories.id = products.category_id",
+  select: `products.*,
+    coalesce(products.main_image, products.image) as display_image,
+    coalesce(mc.name, case when parent_cat.id is not null then parent_cat.name else direct_cat.name end) as main_category_name,
+    coalesce(sc.name, case when parent_cat.id is not null then direct_cat.name else null end) as subcategory_name,
+    case
+      when mc.name is not null and sc.name is not null then mc.name || ' → ' || sc.name
+      when mc.name is not null then mc.name
+      when parent_cat.id is not null then parent_cat.name || ' → ' || direct_cat.name
+      else direct_cat.name
+    end as category_path_label,
+    (products.product_code is not null) as imported`,
+  listJoins: `left join categories direct_cat on direct_cat.id = products.category_id
+    left join categories parent_cat on parent_cat.id = direct_cat.parent_id
+    left join main_categories mc on mc.id = products.main_category_id
+    left join subcategories sc on sc.id = products.subcategory_id`,
   searchColumns: [
     "products.name",
     "products.sku",
+    "products.model",
     "products.description",
-    "categories.name",
+    "direct_cat.name",
+    "parent_cat.name",
+    "mc.name",
+    "sc.name",
   ],
   writable: [
     "name",
     "description",
     "sku",
+    "model",
     "categoryId",
+    "mainCategoryId",
+    "subcategoryId",
     "price",
     "oldPrice",
     "image",
+    "mainImage",
+    "productCode",
     "stock",
     "inStore",
     "inHand",
+    "btu",
+    "areaMm2",
+    "energyClass",
+    "seer",
+    "scop",
+    "wifiEnabled",
+    "heatingCooling",
+    "series",
+    "warrantyYears",
+    "installationPrice",
+    "maintenancePrice",
+    "manualUrl",
+    "environments",
   ],
   schema: schemas.product,
 });
+
+// Custom show that returns images, prices, options, and feature_values
+products.show = async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const [base, images, prices, opts, features] = await Promise.all([
+      query(
+        `select products.*,
+          coalesce(
+            (select pi.image_path from product_images pi
+             where pi.product_id = products.id and pi.is_main = true limit 1),
+            (select pi.image_path from product_images pi
+             where pi.product_id = products.id order by pi.position, pi.id limit 1),
+            products.main_image,
+            products.image
+          ) as display_image,
+          coalesce(mc.name, case when parent_cat.id is not null then parent_cat.name else direct_cat.name end) as main_category_name,
+          coalesce(sc.name, case when parent_cat.id is not null then direct_cat.name else null end) as subcategory_name,
+          case
+            when mc.name is not null and sc.name is not null then mc.name || ' → ' || sc.name
+            when mc.name is not null then mc.name
+            when parent_cat.id is not null then parent_cat.name || ' → ' || direct_cat.name
+            else direct_cat.name
+          end as category_path_label,
+          case
+            when products.main_category_id is not null then json_build_array(products.main_category_id, products.subcategory_id)
+            when parent_cat.id is not null then json_build_array(parent_cat.id, direct_cat.id)
+            when direct_cat.id is not null then json_build_array(direct_cat.id)
+            else '[]'::json
+          end as category_path,
+          (products.product_code is not null) as imported
+        from products
+        left join categories direct_cat on direct_cat.id = products.category_id
+        left join categories parent_cat on parent_cat.id = direct_cat.parent_id
+        left join main_categories mc on mc.id = products.main_category_id
+        left join subcategories sc on sc.id = products.subcategory_id
+        where products.id = $1 and products.deleted_at is null`,
+        [id],
+      ),
+      query(
+        `select id, image_path, is_main, position, image_path as image
+         from product_images where product_id = $1
+         order by is_main desc, position asc, id asc`,
+        [id],
+      ),
+      query(
+        `select pp.usergroup_id, pp.lower_limit, pp.price, ug.name as usergroup_name
+         from product_prices pp
+         left join user_groups ug on ug.id = pp.usergroup_id
+         where pp.product_id = $1
+         order by pp.lower_limit asc`,
+        [id],
+      ),
+      query(
+        `select po.id, o.name as option_name, po.variant_id, ov.name as variant_name
+         from product_options po
+         join options o on o.id = po.option_id
+         join option_variants ov on ov.id = po.variant_id
+         where po.product_id = $1
+         order by o.name, ov.name`,
+        [id],
+      ),
+      query(
+        `select pfv.id, f.name as feature_name, pfv.variant_id, fv.name as variant_name
+         from product_feature_values pfv
+         join features f on f.id = pfv.feature_id
+         join feature_variants fv on fv.id = pfv.variant_id
+         where pfv.product_id = $1
+         order by f.name, fv.name`,
+        [id],
+      ),
+    ]);
+
+    const row = base.rows[0];
+    if (!row) throw notFound();
+    res.json({
+      data: { ...row, images: images.rows, prices: prices.rows, options: opts.rows, feature_values: features.rows },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 const categories = resourceRouter({
   table: "categories",
@@ -130,32 +284,62 @@ const categories = resourceRouter({
   softDelete: false,
 });
 
+const mainCategories = resourceRouter({
+  table: "main_categories",
+  searchColumns: ["main_categories.name"],
+  writable: ["name"],
+  schema: schemas.mainCategory,
+  orderBy: "main_categories.name asc",
+  softDelete: false,
+});
+
+const subcategories = resourceRouter({
+  table: "subcategories",
+  select: "subcategories.*, mc.name as main_category_name",
+  listJoins: "left join main_categories mc on mc.id = subcategories.main_category_id",
+  searchColumns: ["subcategories.name", "mc.name"],
+  writable: ["name", "mainCategoryId"],
+  schema: schemas.subcategory,
+  orderBy: "mc.name asc, subcategories.name asc",
+  softDelete: false,
+});
+
 const sales = resourceRouter({
   table: "sales",
   select:
-    "sales.*, products.name as product_name, client.name as client_name, client.last_name as client_last_name, users.name as seller_name, statuses.slug as status_slug, statuses.label as status_label",
+    "sales.*, products.name as product_name, products.model as product_model, products.btu as product_btu, mc.name as product_type, client.name as client_name, client.last_name as client_last_name, u_seller.name as seller_name, statuses.slug as status_slug, statuses.label as status_label, priorities.label as priority_label, u_tech.name as technician_name",
   listJoins:
-    "left join products on products.id = sales.product_id left join client on client.id = sales.client_id left join users on users.id = sales.sold_by left join statuses on statuses.id = sales.status_id",
+    "left join products on products.id = sales.product_id left join main_categories mc on mc.id = products.main_category_id left join client on client.id = sales.client_id left join users u_seller on u_seller.id = sales.sold_by left join users u_tech on u_tech.id = sales.technician_id left join statuses on statuses.id = sales.status_id left join priorities on priorities.id = sales.priority_id",
   searchColumns: [
     "products.name",
     "client.name",
     "client.last_name",
-    "users.name",
+    "u_seller.name",
     "sales.payment_method",
+    "sales.serial_number",
   ],
   writable: [
     "productId",
     "clientId",
     "quantity",
+    "unitPrice",
+    "discount",
     "warranty",
     "installation",
     "mountingPrice",
     "totalPrice",
     "paymentMethod",
+    "paymentStatus",
     "statusId",
+    "priorityId",
     "soldBy",
+    "technicianId",
+    "orderSource",
     "address",
     "soldAt",
+    "installationDate",
+    "serialNumber",
+    "notes",
   ],
   schema: schemas.sale,
   beforeCreate: async (payload, req) => ({
@@ -319,16 +503,74 @@ const complaints = resourceRouter({
   }),
 });
 
+const projects = resourceRouter({
+  table: "projects",
+  select: `projects.*, client.name as client_name, client.last_name as client_last_name, users.name as assigned_to_name`,
+  listJoins: `left join client on client.id = projects.client_id left join users on users.id = projects.assigned_to`,
+  searchColumns: [
+    "projects.description",
+    "projects.status",
+    "projects.environment",
+    "client.name",
+    "client.last_name",
+  ],
+  writable: ["description", "environment", "areaSqm", "rooms", "clientId", "status", "assignedTo", "notes"],
+  schema: schemas.project,
+  beforeCreate: (payload, req) => ({
+    ...payload,
+    clientId: req.user.type === "client" ? req.user.id : payload.clientId,
+    status: payload.status ?? "pending",
+  }),
+});
+
+const installations = resourceRouter({
+  table: "installations",
+  select: `installations.*,
+    client.name as client_name, client.last_name as client_last_name,
+    client.phone_number as client_phone, client.city as client_city,
+    products.name as product_name, products.model as product_model,
+    products.btu as product_btu, mc.name as product_type,
+    u_seller.name as seller_name, u_tech.name as technician_name`,
+  listJoins: `left join client on client.id = installations.client_id
+    left join products on products.id = installations.product_id
+    left join main_categories mc on mc.id = products.main_category_id
+    left join users u_seller on u_seller.id = installations.sold_by
+    left join users u_tech on u_tech.id = installations.technician_id`,
+  searchColumns: [
+    "client.name", "client.last_name", "client.phone_number",
+    "products.name", "installations.serial_number", "installations.notes",
+  ],
+  writable: [
+    "orderDate", "clientId", "productId",
+    "installationAddress", "orderSource",
+    "quantity", "unitPrice", "discount", "totalPrice",
+    "orderStatus", "paymentStatus", "priority",
+    "soldBy", "technicianId", "installationDate",
+    "serialNumber", "notes", "warranty",
+  ],
+  schema: schemas.installation,
+  beforeCreate: (payload, req) => ({
+    ...payload,
+    soldBy: payload.soldBy ?? req.user.id,
+    orderStatus: payload.orderStatus ?? "pending",
+    paymentStatus: payload.paymentStatus ?? "unpaid",
+  }),
+});
+
 mount("/users", users, [admin]);
 mount("/clients", clients, [staff]);
 mount("/categories", categories, [staff]);
+mount("/main-categories", mainCategories, { read: [], write: [staff] });
+mount("/subcategories", subcategories, { read: [], write: [staff] });
 mount("/products", products, { read: [], write: [staff] });
 mount("/sales", sales, [staff]);
+mount("/installations", installations, [ops]);
 mount("/tasks", tasks, [ops]);
 mount("/inspections", inspections, [ops]);
 mount("/news", news, { read: [], write: [manager] });
 mount("/tickets", tickets, [ops]);
 mount("/complaints", complaints, [ops]);
+mount("/projects", projects, [ops]);
 
 router.get("/my/tickets", async (req, res, next) => {
   try {
@@ -411,38 +653,63 @@ router.get("/my/complaints", async (req, res, next) => {
 
 router.post("/my/complaints", complaints.create);
 
+router.get("/my/projects", async (req, res, next) => {
+  try {
+    const { page, perPage, offset } = parsePagination(req);
+    const params = [req.user.id];
+    const where = ["projects.client_id = $1", "projects.deleted_at is null"];
+    if (req.query.search) {
+      params.push(`%${String(req.query.search).toLowerCase()}%`);
+      where.push(
+        `(lower(coalesce(projects.description, '')) like $${params.length} or lower(coalesce(projects.environment, '')) like $${params.length})`,
+      );
+    }
+    const whereSql = `where ${where.join(" and ")}`;
+    const totalResult = await query(
+      `select count(*)::int as total from projects ${whereSql}`,
+      params,
+    );
+    const result = await query(
+      `select projects.*, users.name as assigned_to_name
+       from projects
+       left join users on users.id = projects.assigned_to
+       ${whereSql}
+       order by projects.created_at desc
+       limit $${params.length + 1} offset $${params.length + 2}`,
+      [...params, perPage, offset],
+    );
+    res.json({
+      data: result.rows,
+      meta: { page, per_page: perPage, total: totalResult.rows[0].total },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/my/projects", projects.create);
+
 router.post("/tools/btu", (req, res) => {
   const area = Number(req.body.area || 0);
   const height = Number(req.body.height || 0);
   const occupants = Number(req.body.occupants || 0);
   const sun = req.body.sun || "medium";
   const insulation = req.body.insulation || "average";
-  const areaFt = area * 10.7639;
   const ranges = [
-    [100, 150, 5000],
-    [150, 250, 6000],
-    [250, 300, 7000],
-    [300, 350, 8000],
-    [350, 400, 9000],
-    [400, 450, 10000],
-    [450, 550, 12000],
-    [550, 700, 14000],
-    [700, 1000, 18000],
-    [1000, 1200, 21000],
-    [1200, 1400, 23000],
-    [1400, 1500, 24000],
-    [1500, 2000, 30000],
-    [2000, 2500, 34000],
+    [9, 14, 7000],
+    [15, 20, 9000],
+    [28, 35, 12000],
+    [36, 45, 24000],
   ];
 
-  let base = areaFt < 100 ? Math.round((areaFt / 100) * 5000) : 0;
+  let base = 0;
   for (const [min, max, value] of ranges) {
-    if (areaFt >= min && areaFt <= max) {
+    if (area >= min && area <= max) {
       base = value;
       break;
     }
   }
-  if (!base && areaFt >= 100) base = Math.round(areaFt * 17);
+  if (!base) base = Math.round(area * 600);
 
   const heightFt = height * 3.28084;
   let btu = base * (heightFt > 0 ? heightFt / 8 : 1);
@@ -460,6 +727,8 @@ router.get("/lookups", async (req, res, next) => {
       statuses,
       priorities,
       categories,
+      mainCategoriesRows,
+      subcategoriesRows,
       technicianJobs,
       technicians,
       users,
@@ -470,6 +739,10 @@ router.get("/lookups", async (req, res, next) => {
       query("select * from statuses order by sort_order"),
       query("select * from priorities order by sort_order"),
       query("select * from categories order by name"),
+      query("select * from main_categories order by name"),
+      query(
+        "select subcategories.*, mc.name as main_category_name from subcategories left join main_categories mc on mc.id = subcategories.main_category_id order by mc.name, subcategories.name",
+      ),
       query("select * from technician_jobs order by title"),
       query(
         "select users.id, users.name, users.email from users join roles on roles.id = users.role_id where roles.name = 'teknik' and users.deleted_at is null order by users.name",
@@ -490,6 +763,8 @@ router.get("/lookups", async (req, res, next) => {
       statuses: statuses.rows,
       priorities: priorities.rows,
       categories: categories.rows,
+      main_categories: mainCategoriesRows.rows,
+      subcategories: subcategoriesRows.rows,
       technician_jobs: technicianJobs.rows,
       technicians: clientOnly ? [] : technicians.rows,
       users: clientOnly ? [] : users.rows,
@@ -535,6 +810,109 @@ router.get("/reports", ops, async (req, res, next) => {
        order by reports.created_at desc`,
     );
     res.json({ data: result.rows, meta: { total: result.rowCount } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Product image gallery endpoints ──────────────────────────────────────────
+
+router.post("/products/:id/images", staff, (req, res, next) => {
+  uploadProductImage(req, res, async (err) => {
+    if (err) return res.status(400).json({ message: err.message });
+    if (!req.file) return res.status(400).json({ message: "No image file provided" });
+    try {
+      const productId = req.params.id;
+      const imagePath = `/uploads/products/${req.file.filename}`;
+
+      const existing = await query(
+        "select id from product_images where product_id = $1 limit 1",
+        [productId],
+      );
+      const isFirst = existing.rows.length === 0;
+
+      const result = await query(
+        `insert into product_images (product_id, image_path, is_main, position)
+         values ($1, $2, $3, coalesce((select max(position)+1 from product_images where product_id = $1), 0))
+         returning *`,
+        [productId, imagePath, isFirst],
+      );
+
+      if (isFirst) {
+        await query(
+          "update products set main_image = $1 where id = $2",
+          [imagePath, productId],
+        );
+      }
+
+      res.status(201).json({ data: result.rows[0] });
+    } catch (dbErr) {
+      await fs.unlink(path.join(uploadsRoot, "products", req.file.filename)).catch(() => {});
+      next(dbErr);
+    }
+  });
+});
+
+router.delete("/products/:id/images/:imageId", staff, async (req, res, next) => {
+  try {
+    const { id: productId, imageId } = req.params;
+    const found = await query(
+      "select * from product_images where id = $1 and product_id = $2",
+      [imageId, productId],
+    );
+    if (!found.rows[0]) throw notFound();
+
+    const { image_path, is_main } = found.rows[0];
+
+    await query("delete from product_images where id = $1", [imageId]);
+
+    const filename = path.basename(image_path);
+    await fs.unlink(path.join(uploadsRoot, "products", filename)).catch(() => {});
+
+    if (is_main) {
+      const next_ = await query(
+        "select image_path from product_images where product_id = $1 order by position, id limit 1",
+        [productId],
+      );
+      const newMain = next_.rows[0]?.image_path ?? null;
+      await query("update products set main_image = $1 where id = $2", [newMain, productId]);
+      if (newMain) {
+        await query(
+          "update product_images set is_main = true where product_id = $1 and image_path = $2",
+          [productId, newMain],
+        );
+      }
+    }
+
+    res.json({ message: "Deleted" });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/products/:id/images/:imageId/set-main", staff, async (req, res, next) => {
+  try {
+    const { id: productId, imageId } = req.params;
+    const found = await query(
+      "select * from product_images where id = $1 and product_id = $2",
+      [imageId, productId],
+    );
+    if (!found.rows[0]) throw notFound();
+
+    await query(
+      "update product_images set is_main = false where product_id = $1",
+      [productId],
+    );
+    await query(
+      "update product_images set is_main = true where id = $1",
+      [imageId],
+    );
+    await query(
+      "update products set main_image = $1 where id = $2",
+      [found.rows[0].image_path, productId],
+    );
+
+    res.json({ data: { ...found.rows[0], is_main: true } });
   } catch (error) {
     next(error);
   }
