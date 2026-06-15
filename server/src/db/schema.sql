@@ -503,6 +503,7 @@ alter table client add column if not exists contact_person varchar(190);
 alter table client add column if not exists client_status varchar(40) not null default 'active';
 alter table client add column if not exists notes text;
 alter table client add column if not exists client_type varchar(40) not null default 'individual';
+alter table client add column if not exists must_change_password boolean not null default false;
 
 -- ─── SALES EXTENSIONS ────────────────────────────────────────────────────────
 
