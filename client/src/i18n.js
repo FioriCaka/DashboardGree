@@ -1,6 +1,7 @@
 const en = {
 	// ── Modules ──────────────────────────────────────────────────────────────────
 	sales: "Sales",
+	orders: "Orders",
 	installations: "Installs",
 	tasks: "Service",
 	products: "Products",
@@ -290,6 +291,7 @@ const en = {
 const sq = {
 	// ── Modules ──────────────────────────────────────────────────────────────────
 	sales: "Shitjet",
+	orders: "Porositë",
 	installations: "Instalimet",
 	tasks: "Servis",
 	products: "Produktet",

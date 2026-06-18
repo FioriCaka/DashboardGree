@@ -378,6 +378,136 @@ const sales = resourceRouter({
 	}),
 });
 
+sales.list = async (req, res, next) => {
+	try {
+		const { page, perPage, offset } = parsePagination(req);
+		const params = [];
+		const where = [];
+		if (req.query.search) {
+			params.push(`%${String(req.query.search).toLowerCase()}%`);
+			where.push(
+				`(
+					lower(coalesce(merged.order_source::text, '')) like $${params.length}
+					or lower(coalesce(merged.product_name::text, '')) like $${params.length}
+					or lower(coalesce(merged.product_model::text, '')) like $${params.length}
+					or lower(coalesce(merged.seller_name::text, '')) like $${params.length}
+					or lower(coalesce(merged.serial_number::text, '')) like $${params.length}
+					or lower(coalesce(merged.status_label::text, '')) like $${params.length}
+				)`,
+			);
+		}
+		if (req.query.status) {
+			params.push(String(req.query.status));
+			where.push(
+				`lower(coalesce(merged.status_slug, '')) = lower($${params.length})`,
+			);
+		}
+		const whereSql = where.length ? `where ${where.join(" and ")}` : "";
+
+		const baseSelect = `
+			from (
+				select
+					sales.id,
+					'sales'::text as row_origin,
+					sales.order_source,
+					null::text as order_number,
+					products.name as product_name,
+					products.model as product_model,
+					products.btu as product_btu,
+					mc.name as product_type,
+					null::text as delivery_name,
+					null::text as delivery_phone,
+					null::text as delivery_address,
+					null::text as delivery_city,
+					sales.quantity,
+					sales.unit_price,
+					sales.discount,
+					sales.total_price,
+					sales.payment_method,
+					statuses.slug as status_slug,
+					statuses.label as status_label,
+					sales.payment_status,
+					priorities.label as priority_label,
+					u_seller.name as seller_name,
+					u_tech.name as technician_name,
+					sales.installation_date,
+					null::date as preferred_installation_date,
+					sales.serial_number,
+					sales.notes,
+					sales.warranty,
+					sales.created_at
+				from sales
+				left join products on products.id = sales.product_id
+				left join main_categories mc on mc.id = products.main_category_id
+				left join users u_seller on u_seller.id = sales.sold_by
+				left join users u_tech on u_tech.id = sales.technician_id
+				left join statuses on statuses.id = sales.status_id
+				left join priorities on priorities.id = sales.priority_id
+				where sales.deleted_at is null
+
+				union all
+
+				select
+					orders.id,
+					'orders'::text as row_origin,
+					'app'::text as order_source,
+					orders.order_number,
+					coalesce(nullif(string_agg(distinct oi.product_name, ', '), ''), 'App order') as product_name,
+					null::text as product_model,
+					null::numeric as product_btu,
+					null::text as product_type,
+					orders.delivery_name,
+					orders.delivery_phone,
+					orders.delivery_address,
+					orders.delivery_city,
+					coalesce(sum(oi.quantity), 0)::int as quantity,
+					case
+						when coalesce(sum(oi.quantity), 0) > 0
+							then round(orders.subtotal / sum(oi.quantity)::numeric, 2)
+						else null
+					end as unit_price,
+					orders.discount,
+					orders.total as total_price,
+					orders.payment_method,
+					orders.status as status_slug,
+					initcap(orders.status) as status_label,
+					null::text as payment_status,
+					null::text as priority_label,
+					'App'::text as seller_name,
+					null::text as technician_name,
+					orders.preferred_installation_date::timestamptz as installation_date,
+					orders.preferred_installation_date,
+					null::text as serial_number,
+					orders.notes,
+					null::int as warranty,
+					orders.created_at
+				from orders
+				left join order_items oi on oi.order_id = orders.id
+				where orders.deleted_at is null
+				group by orders.id
+			) merged
+		`;
+
+		const totalResult = await query(
+			`select count(*)::int as total ${baseSelect} ${whereSql}`,
+			params,
+		);
+		const result = await query(
+			`select merged.* ${baseSelect} ${whereSql}
+			 order by merged.created_at desc, merged.id desc
+			 limit $${params.length + 1} offset $${params.length + 2}`,
+			[...params, perPage, offset],
+		);
+
+		res.json({
+			data: result.rows,
+			meta: { page, per_page: perPage, total: totalResult.rows[0].total },
+		});
+	} catch (error) {
+		next(error);
+	}
+};
+
 const tasks = resourceRouter({
 	table: "tasks",
 	select: `tasks.*, statuses.slug as status_slug, statuses.label as status_label, priorities.slug as priority_slug,
@@ -609,6 +739,130 @@ const installations = resourceRouter({
 		orderStatus: payload.orderStatus ?? "pending",
 		paymentStatus: payload.paymentStatus ?? "unpaid",
 	}),
+});
+
+router.get("/orders", staff, async (req, res, next) => {
+	try {
+		const { page, perPage, offset } = parsePagination(req);
+		const params = [];
+		const where = ["orders.deleted_at is null"];
+		if (req.query.search) {
+			params.push(`%${String(req.query.search).toLowerCase()}%`);
+			where.push(
+				`(lower(orders.order_number) like $${params.length} or lower(coalesce(c.name, '')) like $${params.length} or lower(coalesce(c.last_name, '')) like $${params.length} or lower(coalesce(orders.delivery_phone, '')) like $${params.length})`,
+			);
+		}
+		if (req.query.status) {
+			params.push(req.query.status);
+			where.push(`orders.status = $${params.length}`);
+		}
+		const whereSql = `where ${where.join(" and ")}`;
+		const totalResult = await query(
+			`select count(*)::int as total
+			 from orders
+			 left join client c on c.id = orders.client_id
+			 ${whereSql}`,
+			params,
+		);
+		const result = await query(
+			`select orders.*, c.name as client_name, c.last_name as client_last_name,
+			        c.phone_number as client_phone,
+			        count(oi.id)::int as items_count,
+			        coalesce(sum(oi.quantity), 0)::int as total_quantity
+			 from orders
+			 left join client c on c.id = orders.client_id
+			 left join order_items oi on oi.order_id = orders.id
+			 ${whereSql}
+			 group by orders.id, c.id
+			 order by orders.created_at desc
+			 limit $${params.length + 1} offset $${params.length + 2}`,
+			[...params, perPage, offset],
+		);
+		res.json({
+			data: result.rows,
+			meta: { page, per_page: perPage, total: totalResult.rows[0].total },
+		});
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.get("/orders/:id", staff, async (req, res, next) => {
+	try {
+		const orderResult = await query(
+			`select orders.*, c.name as client_name, c.last_name as client_last_name,
+			        c.phone_number as client_phone
+			 from orders
+			 left join client c on c.id = orders.client_id
+			 where orders.id = $1 and orders.deleted_at is null`,
+			[req.params.id],
+		);
+		const order = orderResult.rows[0];
+		if (!order) throw notFound();
+		const itemsResult = await query(
+			"select * from order_items where order_id = $1 order by id",
+			[order.id],
+		);
+		res.json({ data: { ...order, items: itemsResult.rows } });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.put("/orders/:id", staff, async (req, res, next) => {
+	try {
+		const raw = req.body ?? {};
+		const allowed = {
+			deliveryName: "delivery_name",
+			deliveryPhone: "delivery_phone",
+			deliveryAddress: "delivery_address",
+			deliveryCity: "delivery_city",
+			paymentMethod: "payment_method",
+			status: "status",
+			preferredInstallationDate: "preferred_installation_date",
+			notes: "notes",
+		};
+		const entries = Object.entries(allowed)
+			.filter(([key]) => raw[key] !== undefined)
+			.map(([key, column]) => [column, raw[key]]);
+
+		if (!entries.length) {
+			return res.status(422).json({ message: "No writable fields supplied" });
+		}
+
+		const values = entries.map(([, value]) => (value === "" ? null : value));
+		const sets = entries.map(([column], index) => `${column} = $${index + 1}`);
+		const result = await query(
+			`update orders
+			 set ${sets.join(", ")}, updated_at = now()
+			 where id = $${values.length + 1} and deleted_at is null
+			 returning *`,
+			[...values, req.params.id],
+		);
+
+		const row = result.rows[0];
+		if (!row) throw notFound();
+		res.json({ data: row });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.delete("/orders/:id", staff, async (req, res, next) => {
+	try {
+		const result = await query(
+			`update orders
+			 set deleted_at = now(), updated_at = now()
+			 where id = $1 and deleted_at is null
+			 returning *`,
+			[req.params.id],
+		);
+		const row = result.rows[0];
+		if (!row) throw notFound();
+		res.json({ message: "Deleted", data: row });
+	} catch (error) {
+		next(error);
+	}
 });
 
 mount("/users", users, [admin]);

@@ -1,11 +1,11 @@
 import Boxes from "lucide-react/dist/esm/icons/boxes.js";
 import AlertCircle from "lucide-react/dist/esm/icons/alert-circle.js";
+import Bell from "lucide-react/dist/esm/icons/bell.js";
 import CheckCircle2 from "lucide-react/dist/esm/icons/check-circle-2.js";
 import ClipboardList from "lucide-react/dist/esm/icons/clipboard-list.js";
 import FileText from "lucide-react/dist/esm/icons/file-text.js";
 import Newspaper from "lucide-react/dist/esm/icons/newspaper.js";
 import ShoppingCart from "lucide-react/dist/esm/icons/shopping-cart.js";
-import Ticket from "lucide-react/dist/esm/icons/ticket.js";
 import Users from "lucide-react/dist/esm/icons/users.js";
 import Wrench from "lucide-react/dist/esm/icons/wrench.js";
 
@@ -149,6 +149,13 @@ export const modules = [
 		columns: ["id", "title", "type", "published_at", "creator_name"],
 	},
 	{
+		key: "notifications",
+		label: "Notifications",
+		icon: Bell,
+		roles: ["admin", "menaxher", "shites", "teknik"],
+		columns: [],
+	},
+	{
 		key: "reports",
 		label: "Reports",
 		icon: FileText,
@@ -251,6 +258,16 @@ export const formFields = {
 		"serialNumber",
 		"notes",
 	],
+	orders: [
+		"deliveryName",
+		"deliveryPhone",
+		"deliveryAddress",
+		"deliveryCity",
+		"paymentMethod",
+		"status",
+		"preferredInstallationDate",
+		"notes",
+	],
 	tasks: [
 		"title",
 		"description",
@@ -285,6 +302,11 @@ export const labels = {
 	orderDate: "Data e Porosisë",
 	installationAddress: "Adresa e Instalimit",
 	orderStatus: "Status Porosie",
+	deliveryName: "Emri i dorëzimit",
+	deliveryPhone: "Telefoni i dorëzimit",
+	deliveryAddress: "Adresa e dorëzimit",
+	deliveryCity: "Qyteti i dorëzimit",
+	preferredInstallationDate: "Data e preferuar e instalimit",
 	contactPerson: "Kontakt Person",
 	clientType: "Tipi Klientit",
 	clientStatus: "Statusi",
@@ -326,6 +348,7 @@ export const labels = {
 	environments: "Environments (Ambienti)",
 	areaSqm: "Area (m²)",
 	environment: "Environment",
+	orders: "Porositë",
 };
 
 export const staticOptions = {
