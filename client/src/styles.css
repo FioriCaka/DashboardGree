@@ -394,6 +394,10 @@ th {
   flex: 1 1 200px;
 }
 
+.categoryManager label:has(textarea) {
+  flex: 1 1 100%;
+}
+
 .categoryList {
   display: grid;
   gap: 8px;
@@ -403,7 +407,7 @@ th {
   display: grid;
   grid-template-columns: 1fr auto auto;
   gap: 12px;
-  align-items: center;
+  align-items: start;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -418,6 +422,26 @@ th {
 .categoryRow div {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.categoryRowInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.categoryTagline {
+  font-size: 12px;
+  color: var(--accent);
+  font-style: italic;
+}
+
+.categoryDescription {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.4;
 }
 
 label {

@@ -282,6 +282,9 @@ const en = {
 	nameRequired: "Name is required.",
 	exResidential: "e.g. Residential",
 	exSplitAC: "e.g. Split AC",
+	categoryTagline: "Tagline",
+	exTagline: "e.g. Smart Choice",
+	exCategoryDescription: "Short description of this category...",
 
 	// ── ResourceForm ──────────────────────────────────────────────────────────────
 	createTitle: "Create",
@@ -572,6 +575,9 @@ const sq = {
 	nameRequired: "Emri është i detyrueshëm.",
 	exResidential: "p.sh. Banesore",
 	exSplitAC: "p.sh. Split AC",
+	categoryTagline: "Tagline",
+	exTagline: "p.sh. Zgjedhja e Zgjuar",
+	exCategoryDescription: "Përshkrim i shkurtër i kësaj kategorie...",
 
 	// ── ResourceForm ──────────────────────────────────────────────────────────────
 	createTitle: "Krijo",

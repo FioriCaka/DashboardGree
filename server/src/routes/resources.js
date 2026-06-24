@@ -327,7 +327,7 @@ const subcategories = resourceRouter({
 	listJoins:
 		"left join main_categories mc on mc.id = subcategories.main_category_id",
 	searchColumns: ["subcategories.name", "mc.name"],
-	writable: ["name", "mainCategoryId"],
+	writable: ["name", "tagline", "description", "mainCategoryId"],
 	schema: schemas.subcategory,
 	orderBy: "mc.name asc, subcategories.name asc",
 	softDelete: false,

@@ -433,6 +433,28 @@ router.post("/my/orders", async (req, res, next) => {
 						reminderAt,
 					],
 				);
+
+				for (let i = 1; i <= 4; i++) {
+					const filterReminderAt = new Date();
+					filterReminderAt.setMonth(filterReminderAt.getMonth() + i * 3);
+					await client.query(
+						`insert into scheduled_notifications
+               (target_type, target_id, title, body, data, send_at, status, updated_at)
+             values ($1, $2, $3, $4, $5, $6, 'pending', now())`,
+						[
+							"client",
+							clientId,
+							"Kujtesë mirëmbajtjeje:",
+							"Ka ardhur momenti për pastrimin e filtrave të pajisjes suaj.",
+							JSON.stringify({
+								screen: "mirembajtje",
+								kind: "filter_cleaning_reminder",
+								orderId: newOrder.id,
+							}),
+							filterReminderAt,
+						],
+					);
+				}
 			}
 
 			return { ...newOrder, items: insertedItems };

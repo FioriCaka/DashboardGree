@@ -279,6 +279,25 @@ create table if not exists orders (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists maintenance_requests (
+  id bigserial primary key,
+  client_id bigint not null references client(id) on delete cascade,
+  kind varchar(40) not null default 'booking',
+  product_name varchar(255),
+  product_location varchar(255),
+  preferred_date varchar(100),
+  contact_name varchar(255),
+  contact_phone varchar(50) not null,
+  notes text,
+  answers jsonb,
+  status varchar(40) not null default 'new',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_maintenance_requests_client on maintenance_requests(client_id);
+create index if not exists idx_maintenance_requests_kind on maintenance_requests(kind);
+
 create table if not exists order_items (
   id bigserial primary key,
   order_id bigint not null references orders(id) on delete cascade,
@@ -423,6 +442,8 @@ create table if not exists main_categories (
 create table if not exists subcategories (
   id bigserial primary key,
   name varchar(190) not null,
+  tagline varchar(255),
+  description text,
   main_category_id bigint references main_categories(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -438,6 +459,9 @@ do $$ begin
     alter table products drop column environments;
   end if;
 end $$;
+alter table subcategories add column if not exists tagline varchar(255);
+alter table subcategories add column if not exists description text;
+
 alter table products add column if not exists environments text[] not null default '{}';
 alter table products add column if not exists main_category_id bigint references main_categories(id) on delete set null;
 alter table products add column if not exists subcategory_id bigint references subcategories(id) on delete set null;
@@ -462,6 +486,20 @@ create table if not exists projects (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- ─── PUSH NOTIFICATIONS ──────────────────────────────────────────────────────
+
+create table if not exists push_tokens (
+  id bigserial primary key,
+  user_type varchar(10) not null check (user_type in ('client', 'user')),
+  user_id bigint not null,
+  token varchar(500) not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_type, user_id)
+);
+
+create index if not exists idx_push_tokens_user on push_tokens(user_type, user_id);
 
 create index if not exists idx_projects_client on projects(client_id);
 create index if not exists idx_projects_status on projects(status);

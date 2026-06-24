@@ -8,7 +8,7 @@ export default function CategoryManagementModal({ onClose, onChanged }) {
   const [mainCategories, setMainCategories] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
   const [mainForm, setMainForm] = useState({ id: null, name: "" });
-  const [subForm, setSubForm] = useState({ id: null, name: "", mainCategoryId: "" });
+  const [subForm, setSubForm] = useState({ id: null, name: "", tagline: "", description: "", mainCategoryId: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -60,12 +60,17 @@ export default function CategoryManagementModal({ onClose, onChanged }) {
     if (!subForm.name.trim()) { setError(t("nameRequired")); return; }
     setError("");
     try {
-      const payload = { name: subForm.name, mainCategoryId: subForm.mainCategoryId || null };
+      const payload = {
+        name: subForm.name,
+        tagline: subForm.tagline || null,
+        description: subForm.description || null,
+        mainCategoryId: subForm.mainCategoryId || null,
+      };
       if (subForm.id)
         await resourceApi.update("subcategories", subForm.id, payload);
       else
         await resourceApi.create("subcategories", payload);
-      setSubForm({ id: null, name: "", mainCategoryId: "" });
+      setSubForm({ id: null, name: "", tagline: "", description: "", mainCategoryId: "" });
       await loadAll();
       await onChanged();
     } catch (err) { setError(err.message); }
@@ -171,11 +176,28 @@ export default function CategoryManagementModal({ onClose, onChanged }) {
                   ))}
                 </select>
               </label>
+              <label>
+                <span>{t("categoryTagline")}</span>
+                <input
+                  value={subForm.tagline}
+                  onChange={(e) => setSubForm({ ...subForm, tagline: e.target.value })}
+                  placeholder={t("exTagline")}
+                />
+              </label>
+              <label>
+                <span>{t("description")}</span>
+                <textarea
+                  value={subForm.description}
+                  onChange={(e) => setSubForm({ ...subForm, description: e.target.value })}
+                  placeholder={t("exCategoryDescription")}
+                  rows={3}
+                />
+              </label>
               <button className="primary">{subForm.id ? t("update") : t("add")}</button>
               {subForm.id && (
                 <button
                   type="button"
-                  onClick={() => setSubForm({ id: null, name: "", mainCategoryId: "" })}
+                  onClick={() => setSubForm({ id: null, name: "", tagline: "", description: "", mainCategoryId: "" })}
                 >
                   {t("cancel")}
                 </button>
@@ -189,16 +211,24 @@ export default function CategoryManagementModal({ onClose, onChanged }) {
               ) : (
                 subcategories.map((sc) => (
                   <div className="categoryRow" key={sc.id}>
-                    <strong>{sc.name}</strong>
+                    <div className="categoryRowInfo">
+                      <strong>{sc.name}</strong>
+                      {sc.tagline && <span className="categoryTagline">{sc.tagline}</span>}
+                      {sc.description && <p className="categoryDescription">{sc.description}</p>}
+                    </div>
                     <span>
                       {sc.main_category_name ? `${sc.main_category_name} / ` : ""}#{sc.id}
                     </span>
                     <div>
                       <button
                         type="button"
-                        onClick={() =>
-                          setSubForm({ id: sc.id, name: sc.name, mainCategoryId: sc.main_category_id ?? "" })
-                        }
+                        onClick={() => setSubForm({
+                          id: sc.id,
+                          name: sc.name,
+                          tagline: sc.tagline ?? "",
+                          description: sc.description ?? "",
+                          mainCategoryId: sc.main_category_id ?? "",
+                        })}
                       >
                         {t("edit")}
                       </button>

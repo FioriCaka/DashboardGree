@@ -267,6 +267,8 @@ export const schemas = {
 	}),
 	subcategory: z.object({
 		name: z.string().min(1),
+		tagline: z.string().optional().nullable(),
+		description: z.string().optional().nullable(),
 		mainCategoryId: optionalNullableNumber(),
 	}),
 	sale: z.object({
