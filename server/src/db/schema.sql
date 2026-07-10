@@ -554,3 +554,124 @@ alter table sales add column if not exists technician_id bigint references users
 alter table sales add column if not exists installation_date date;
 alter table sales add column if not exists serial_number varchar(100);
 alter table sales add column if not exists notes text;
+
+-- Website compatibility fields for the shared product catalog.
+alter table products add column if not exists category varchar(100);
+alter table products add column if not exists short_description text;
+alter table products add column if not exists specs text;
+alter table products add column if not exists features text;
+alter table products add column if not exists price_range varchar(100);
+alter table products add column if not exists list_price numeric(10,2) not null default 0;
+alter table products add column if not exists amount numeric(10,2) not null default 0;
+alter table products add column if not exists tracking varchar(40);
+alter table products add column if not exists exceptions_type varchar(40);
+alter table products add column if not exists is_featured boolean not null default false;
+alter table products add column if not exists sort_order integer not null default 0;
+
+alter table main_categories add column if not exists sort_order integer not null default 0;
+alter table subcategories add column if not exists short_description text;
+alter table subcategories add column if not exists is_special boolean not null default false;
+alter table subcategories add column if not exists is_header boolean not null default false;
+alter table subcategories add column if not exists sort_order integer not null default 0;
+
+-- Website-only content.
+create table if not exists web_projects (
+  id bigserial primary key,
+  title varchar(255) not null,
+  category varchar(100) not null,
+  product_id bigint references products(id) on delete set null,
+  product_type varchar(120),
+  product_types jsonb not null default '[]'::jsonb,
+  business_type varchar(120),
+  business_type_sq varchar(120),
+  power_kw varchar(50),
+  location varchar(150),
+  description text,
+  tags varchar(255),
+  image varchar(500),
+  video varchar(500),
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists web_project_gallery (
+  id bigserial primary key,
+  project_id bigint not null references web_projects(id) on delete cascade,
+  image varchar(500) not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists web_news (
+  id bigserial primary key,
+  title varchar(255) not null,
+  content text,
+  excerpt text,
+  image varchar(500),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists services (
+  id bigserial primary key,
+  title varchar(100) not null,
+  title_sq varchar(100),
+  description text,
+  description_sq text,
+  icon varchar(500),
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists certificates (
+  id bigserial primary key,
+  name varchar(255) not null,
+  image varchar(500),
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists showroom (
+  id bigserial primary key,
+  caption varchar(255),
+  image varchar(500) not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists settings (
+  id bigserial primary key,
+  setting_key varchar(100) not null unique,
+  setting_value text
+);
+
+create table if not exists contact_messages (
+  id bigserial primary key,
+  name varchar(100) not null,
+  email varchar(150) not null,
+  phone varchar(50),
+  subject varchar(255),
+  message text not null,
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists professionals (
+  id bigserial primary key,
+  full_name varchar(160) not null,
+  email varchar(150) not null,
+  phone varchar(50),
+  company varchar(150),
+  profession varchar(200),
+  city varchar(120),
+  message text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_web_projects_product on web_projects(product_id);
+create index if not exists idx_web_projects_category on web_projects(category);
+create index if not exists idx_web_news_created on web_news(created_at);

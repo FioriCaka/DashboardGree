@@ -16,6 +16,7 @@ import {
 import resourceRoutes from "./routes/resources.js";
 import shopRoutes from "./routes/shop.js";
 import notificationRoutes from "./routes/notifications.js";
+import webRoutes from "./routes/web.js";
 import { startScheduledNotificationDispatcher } from "./push.js";
 import { errorHandler } from "./http/errors.js";
 
@@ -35,6 +36,7 @@ app.use(
 app.get(["/health", "/status"], (_req, res) => res.json({ status: "ok" }));
 app.post("/api/register", register);
 app.post("/api/login", login);
+app.use("/api", webRoutes);
 
 app.use("/api", authRequired);
 app.get("/api/user", profile);
@@ -49,8 +51,8 @@ app.use("/api", notificationRoutes);
 app.use((_req, res) => res.status(404).json({ message: "Route not found" }));
 app.use(errorHandler);
 
-const server = app.listen(config.port, () => {
-	console.log(`Gree API listening on http://localhost:${config.port}`);
+const server = app.listen(config.port, config.host, () => {
+	console.log(`Gree API listening on http://${config.host}:${config.port}`);
 });
 
 startScheduledNotificationDispatcher();
