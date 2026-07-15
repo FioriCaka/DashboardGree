@@ -675,3 +675,15 @@ create table if not exists professionals (
 create index if not exists idx_web_projects_product on web_projects(product_id);
 create index if not exists idx_web_projects_category on web_projects(category);
 create index if not exists idx_web_news_created on web_news(created_at);
+
+create table if not exists catalogs (
+  id bigserial primary key,
+  title varchar(255) not null,
+  title_sq varchar(255),
+  image varchar(500),
+  pages text,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
