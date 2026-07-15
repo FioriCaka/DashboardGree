@@ -942,10 +942,11 @@ router.delete("/settings/page-banners/:key", ...adminOnly, async (req, res, next
 router.post("/contact", async (req, res, next) => {
 	try {
 		const { name, email, phone, subject, message } = req.body;
-		if (!name || !email || !message) throw new HttpError(400, "Name, email, and message are required");
+		if (!name || !phone || !message) throw new HttpError(400, "Name, phone, and message are required");
+		const resolvedEmail = email || `no-email-${Date.now()}@local.gree`;
 		const result = await query(
 			"insert into contact_messages (name, email, phone, subject, message) values ($1, $2, $3, $4, $5) returning id",
-			[name, email, phone || null, subject || null, message],
+			[name, resolvedEmail, phone, subject || null, message],
 		);
 		res.json({ id: result.rows[0].id, message: "Message sent successfully" });
 	} catch (error) {
@@ -1002,13 +1003,90 @@ router.get("/professionals", ...adminOnly, async (_req, res, next) => {
 	}
 });
 
-router.delete("/professionals/:id", ...adminOnly, async (req, res, next) => {
+// ─── CATALOGS ────────────────────────────────────────────────────────────────
+router.get("/web/catalogs", async (_req, res, next) => {
 	try {
-		await query("delete from professionals where id = $1", [req.params.id]);
-		res.json({ message: "Deleted" });
+		const result = await query("select * from catalogs order by sort_order asc, created_at desc");
+		const mapped = result.rows.map(row => ({
+			...row,
+			pages: String(row.pages || "").split("\n").map(p => p.trim()).filter(Boolean)
+		}));
+		res.json(mapped);
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.post("/web/catalogs", ...adminOnly, upload.fields([{ name: "image", maxCount: 1 }, { name: "pages", maxCount: 100 }]), async (req, res, next) => {
+	try {
+		const title = req.body.title;
+		const title_sq = req.body.title_sq || null;
+		if (!title) throw new HttpError(400, "Catalog title is required");
+
+		const image = assetPath(req.files?.image?.[0]) || null;
+		const pages = (req.files?.pages || []).map(assetPath).filter(Boolean).join("\n");
+
+		const result = await query(
+			`insert into catalogs (title, title_sq, image, pages, sort_order)
+			 values ($1, $2, $3, $4, $5)
+			 returning id`,
+			[title, title_sq, image, pages, Number(req.body.sort_order || 0)]
+		);
+		res.json({ id: result.rows[0].id, message: "Catalog created" });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.put("/web/catalogs/:id", ...adminOnly, upload.fields([{ name: "image", maxCount: 1 }, { name: "pages", maxCount: 100 }]), async (req, res, next) => {
+	try {
+		const id = req.params.id;
+		const title = req.body.title;
+		const title_sq = req.body.title_sq;
+		
+		const existingResult = await query("select * from catalogs where id = $1", [id]);
+		if (!existingResult.rows[0]) throw notFound();
+		const existing = existingResult.rows[0];
+
+		const image = assetPath(req.files?.image?.[0]) || existing.image;
+		
+		let currentPages = [];
+		if (req.body.pages_order !== undefined) {
+			currentPages = String(req.body.pages_order).split("\n").map(x => x.trim()).filter(Boolean);
+		} else {
+			currentPages = String(existing.pages || "").split("\n").map(x => x.trim()).filter(Boolean);
+		}
+		
+		const newPages = (req.files?.pages || []).map(assetPath).filter(Boolean);
+		const pages = [...currentPages, ...newPages].join("\n");
+
+		await query(
+			`update catalogs
+			 set title = $1, title_sq = $2, image = $3, pages = $4, sort_order = $5, updated_at = now()
+			 where id = $6`,
+			[
+				title || existing.title,
+				title_sq !== undefined ? title_sq : existing.title_sq,
+				image,
+				pages,
+				req.body.sort_order !== undefined ? Number(req.body.sort_order) : existing.sort_order,
+				id
+			]
+		);
+		res.json({ message: "Catalog updated" });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.delete("/web/catalogs/:id", ...adminOnly, async (req, res, next) => {
+	try {
+		await query("delete from catalogs where id = $1", [req.params.id]);
+		res.json({ message: "Catalog deleted" });
 	} catch (error) {
 		next(error);
 	}
 });
 
 export default router;
+
