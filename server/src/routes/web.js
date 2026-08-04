@@ -575,7 +575,7 @@ router.get("/web/projects", async (req, res, next) => {
 		const result = await query(
 			`${webProjectSelect}
 			 ${where.length ? `where ${where.join(" and ")}` : ""}
-			 order by wp.sort_order asc, wp.created_at desc`,
+			 order by wp.updated_at desc, wp.id desc`,
 			params,
 		);
 		const productType = String(req.query.product_type || "").trim().toUpperCase();
@@ -1085,6 +1085,18 @@ router.delete("/web/catalogs/:id", ...adminOnly, async (req, res, next) => {
 		res.json({ message: "Catalog deleted" });
 	} catch (error) {
 		next(error);
+	}
+});
+
+router.post("/upload", upload.single("file"), (req, res) => {
+	try {
+		if (!req.file) {
+			return res.status(400).json({ error: "No file uploaded" });
+		}
+		const url = `/uploads/${req.file.filename}`;
+		res.json({ url });
+	} catch (err) {
+		res.status(500).json({ error: err.message });
 	}
 });
 
