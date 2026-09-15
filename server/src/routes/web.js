@@ -27,8 +27,10 @@ const upload = multer({
 	}),
 	limits: { fileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE_MB ?? 300) * 1024 * 1024 },
 	fileFilter: (_req, file, cb) => {
-		const ok = /^image\/(jpeg|png|webp|gif)$/.test(file.mimetype) ||
-			/^video\/(mp4|quicktime|x-msvideo)$/.test(file.mimetype);
+		const isImage = /^image\//i.test(file.mimetype);
+		const isVideo = /^video\//i.test(file.mimetype) ||
+			/\.(mp4|mov|webm|mkv|avi|m4v|3gp|wmv)$/i.test(file.originalname);
+		const ok = isImage || isVideo;
 		cb(ok ? null : new Error("Only images and videos are allowed"), ok);
 	},
 });
@@ -83,7 +85,14 @@ function normalizeProductTypes(...values) {
 }
 
 function formatPriceRange(price, listPrice, currentValue) {
-	if (typeof currentValue === "string" && currentValue.trim()) return currentValue.trim();
+	if (typeof currentValue === "string" && currentValue.trim()) {
+		// If it contains letters (like "Contact for pricing"), preserve it.
+		// If it's just numbers/decimals/ranges, recalculate it.
+		const isCustomText = /[a-zA-Z]/.test(currentValue);
+		if (isCustomText) {
+			return currentValue.trim();
+		}
+	}
 	const sale = Number(price || 0);
 	const regular = Number(listPrice || 0);
 	if (sale > 0 && regular > sale) return `${sale.toFixed(2)} - ${regular.toFixed(2)}`;
@@ -254,7 +263,7 @@ router.post("/auth/create-admin", authRequired, requireRoles("admin"), async (re
 router.get("/web/products", async (req, res, next) => {
 	try {
 		const params = [];
-		const where = ["p.deleted_at is null"];
+		const where = ["p.deleted_at is null", "p.is_visible = true"];
 		if (req.query.category) {
 			params.push(String(req.query.category));
 			where.push("coalesce(sc.name, mc.name, p.category) = $" + params.length);
@@ -284,7 +293,7 @@ router.get("/web/products/categories", async (_req, res, next) => {
 	try {
 		const result = await query(
 			`${productSelect}
-			 where p.deleted_at is null
+			 where p.deleted_at is null and p.is_visible = true
 			 order by coalesce(sc.name, mc.name, p.category) asc`,
 		);
 		res.json([...new Set(result.rows.map((row) => mapProduct(row).category).filter(Boolean))]);
@@ -302,7 +311,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 			query(
 				`select main_category_id, subcategory_id, count(*)::int as total
 				 from products
-				 where deleted_at is null
+				 where deleted_at is null and is_visible = true
 				 group by main_category_id, subcategory_id`,
 			),
 		]);
@@ -352,7 +361,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 router.get("/web/products/:id", async (req, res, next) => {
 	try {
 		const [base, images, prices, options, features] = await Promise.all([
-			query(`${productSelect} where p.id = $1 and p.deleted_at is null`, [req.params.id]),
+			query(`${productSelect} where p.id = $1 and p.deleted_at is null and p.is_visible = true`, [req.params.id]),
 			query("select id, image_path, is_main, position, image_path as image from product_images where product_id = $1 order by is_main desc, position asc, id asc", [req.params.id]),
 			query("select pp.usergroup_id, pp.lower_limit, pp.price, ug.name as usergroup_name from product_prices pp left join user_groups ug on ug.id = pp.usergroup_id where pp.product_id = $1 order by pp.lower_limit asc", [req.params.id]),
 			query("select po.id, o.name as option_name, po.variant_id, ov.name as variant_name from product_options po join options o on o.id = po.option_id join option_variants ov on ov.id = po.variant_id where po.product_id = $1 order by o.name, ov.name", [req.params.id]),
