@@ -248,6 +248,130 @@ async function main() {
      on conflict do nothing`,
   );
 
+  const initialErrorCodes = [
+    [
+      "E0",
+      "Defekt EEPROM",
+      "Kujtesa e brendshme e bordit elektrik ka dështuar.",
+      "Bord elektronik i dëmtuar, Tension i paqëndrueshëm",
+      "Kërkohet zëvendësim i bordit. Kontaktoni servicin.",
+      "high",
+    ],
+    [
+      "E1",
+      "Mbrojtje nga presioni i lartë",
+      "Presioni i gazit në komprestor ka tejkaluar limitin e lejuar.",
+      "Ventilatori i jashtëm i bllokuar ose i dëmtuar, Gaz freoni i tepërt, Temperatura e jashtme shumë e lartë",
+      "Kontrolloni ventilatorin dhe serpentinën e jashtme. Mos e ndizni derisa servisteri të verifikojë nivelin e gazit.",
+      "high",
+    ],
+    [
+      "E2",
+      "Mbrojtje nga presioni i ulët",
+      "Presioni i gazit freoni është nën nivelin minimal.",
+      "Rrjedhje gazi freoni, Sasia e pamjaftueshme e gazit, Temperatura e jashtme shumë e ulët",
+      "Ndaloni pajisjen. Ka mundësi rrjedhje gazi — kërkohet servis i menjëhershëm.",
+      "high",
+    ],
+    [
+      "E3",
+      "Mbrojtje nga rryma e lartë e kompresorit",
+      "Kompresori po konsumon rrymë mbi limitin e lejuar.",
+      "Tensioni i rrjetit shumë i ulët, Kompresori i bllokuar ose i dëmtuar, Gaz freoni i tepërt",
+      "Kontrolloni tensionin e rrjetit elektrik. Ndaloni pajisjen dhe kontaktoni servicin.",
+      "high",
+    ],
+    [
+      "E4",
+      "Mbrojtje nga temperatura e lartë e shkarkimit",
+      "Temperatura e tubacionit të shkarkimit të kompresorit është shumë e lartë.",
+      "Gaz freoni i pamjaftueshëm, Bllokim i rrjedhës së ajrit, Temperatura e jashtme ekstreme",
+      "Lini pajisjen të pushojë 30 min. Nëse gabimi persiston, kërkohet servis.",
+      "high",
+    ],
+    [
+      "E5",
+      "Mbrojtje nga mbingarkesa elektrike",
+      "Rryma totale e njësisë ka tejkaluar vlerën maksimale.",
+      "Tension i rrjetit jashtë normales, Defekt i bordit të kontrollit",
+      "Kontrolloni burim tensionin. Nëse vazhdon, kërkohet servis.",
+      "high",
+    ],
+    [
+      "E6",
+      "Defekt komunikimi (brendshme ↔ jashtme)",
+      "Njësia e brendshme dhe e jashtme nuk komunikojnë si duhet.",
+      "Kabllo komunikimi e dëmtuar ose e shkëputur, Bord elektronik me defekt",
+      "Kontrolloni lidhjet e kablove midis njësive. Nëse vazhdon, kërkohet servis.",
+      "medium",
+    ],
+    [
+      "E7",
+      "Konflikt i mënyrës",
+      "Dy njësi të ndryshme janë vendosur në mënyra të kundërta (ftohje + ngrohje).",
+      "Disa telekomanda aktive njëkohësisht me mënyra të ndryshme",
+      "Vendosini të gjitha njësitë në të njëjtën mënyrë pune. Gabim i zakonshëm pa nevojë servisi.",
+      "low",
+    ],
+    [
+      "E8",
+      "Defekt i motorit të ventilatorit të brendshëm",
+      "Motori i ventilatorit të njësisë së brendshme nuk funksionon si duhet.",
+      "Motor i dëmtuar, Kondensator i motorit me defekt, Bord kontrolli me defekt",
+      "Ndaloni pajisjen. Kërkohet inspektim dhe ndoshta zëvendësim i motorit.",
+      "medium",
+    ],
+    [
+      "F0",
+      "Defekt sensorit T1 (temperaturë ajri brendshëm)",
+      "Sensori i temperaturës së ajrit të brendshëm ka dështuar.",
+      "Sensor i shkëputur, Sensor i dëmtuar nga lagështia",
+      "Kërkohet zëvendësim i sensorit nga tekniku.",
+      "medium",
+    ],
+    [
+      "F1",
+      "Defekt sensorit T2 (serpentinë brendshme)",
+      "Sensori i temperaturës së serpentinës së brendshme ka dështuar.",
+      "Sensor i shkëputur ose i dëmtuar",
+      "Kërkohet zëvendësim i sensorit nga tekniku.",
+      "medium",
+    ],
+    [
+      "H1",
+      "Mbrojtje nga ngrica / Erë e ftohtë",
+      "Pajisja është në ciklin e shkrirjes ose mbrojtjes nga era e ftohtë. Ky është funksionim normal.",
+      "Temperatura e jashtme shumë e ulët, Cikël normal i shkrirjes",
+      "Prisni disa minuta. Pajisja do të rifillojë vetë. Nuk kërkohet servis.",
+      "low",
+    ],
+    [
+      "H6",
+      "Defekt i reagimit të motorit DC (brendshëm)",
+      "Motori DC i ventilatorit të brendshëm nuk dërgon sinjal reagimi.",
+      "Motor i dëmtuar, Lidhje kabllo e lirë",
+      "Ndaloni pajisjen dhe kontaktoni servicin.",
+      "medium",
+    ],
+    [
+      "P0",
+      "Mbrojtja IPM",
+      "Mbrojtje e integruar e modulit të fuqisë inverter.",
+      "Tension i paqëndrueshëm, Temperaturë shumë e lartë, Modul i dëmtuar",
+      "Kërkohet servis i menjëhershëm.",
+      "high",
+    ],
+  ];
+
+  for (const [code, name, description, causes, action, severity] of initialErrorCodes) {
+    await query(
+      `insert into error_codes (code, name, description, causes, action, severity)
+       values ($1, $2, $3, $4, $5, $6)
+       on conflict do nothing`,
+      [code, name, description, causes, action, severity],
+    );
+  }
+
   console.log("Database seeded. Default password: asdasdasd");
 }
 

@@ -80,6 +80,8 @@ export function normalizeInitial(resource, row, user, lookups) {
 		initial.status = "scheduled";
 	if (resource === "news" && !initial.type) initial.type = "blog";
 	if (resource === "projects" && !initial.status) initial.status = "pending";
+	if (resource === "error_codes" && !initial.severity)
+		initial.severity = "medium";
 	return initial;
 }
 
@@ -97,5 +99,7 @@ export function coercePayload(resource, form) {
 		payload.technicianIds = [];
 	if (resource === "products" && !Array.isArray(payload.environments))
 		payload.environments = [];
+	if (resource === "error_codes" && !payload.severity)
+		payload.severity = "medium";
 	return payload;
 }

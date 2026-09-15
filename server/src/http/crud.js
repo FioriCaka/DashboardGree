@@ -66,6 +66,15 @@ export function resourceRouter(config) {
 					`(${searchColumns.map((column) => `lower(coalesce(${column}::text, '')) like $${params.length}`).join(" or ")})`,
 				);
 			}
+			for (const [key, val] of Object.entries(req.query)) {
+				if (["page", "per_page", "perPage", "search"].includes(key)) continue;
+				if (val !== undefined && val !== null && val !== "") {
+					const snakeKey = toSnake(key);
+					const parsedVal = typeof val === "string" && !isNaN(val) && val.trim() !== "" ? Number(val) : val;
+					params.push(parsedVal);
+					where.push(`${table}.${snakeKey} = $${params.length}`);
+				}
+			}
 			const whereSql = where.length ? `where ${where.join(" and ")}` : "";
 			const totalResult = await query(
 				`select count(*)::int as total from ${table} ${listJoins} ${whereSql}`,
@@ -109,7 +118,13 @@ export function resourceRouter(config) {
 			const keys = Object.keys(pick(prepared, writable));
 			if (!keys.length) throw new HttpError(422, "No writable fields supplied");
 			const columns = keys.map(toSnake);
-			const values = keys.map((key) => prepared[key]);
+			const values = keys.map((key) => {
+				const val = prepared[key];
+				if ((key === "photos" || key === "videos") && (Array.isArray(val) || (typeof val === "object" && val !== null))) {
+					return JSON.stringify(val);
+				}
+				return val;
+			});
 			const placeholders = values.map((_, index) => `$${index + 1}`);
 			const result = await query(
 				`insert into ${table} (${columns.join(", ")}) values (${placeholders.join(", ")}) returning *`,
@@ -132,7 +147,13 @@ export function resourceRouter(config) {
 				: payload;
 			const keys = Object.keys(pick(prepared, writable));
 			if (!keys.length) throw new HttpError(422, "No writable fields supplied");
-			const values = keys.map((key) => prepared[key]);
+			const values = keys.map((key) => {
+				const val = prepared[key];
+				if ((key === "photos" || key === "videos") && (Array.isArray(val) || (typeof val === "object" && val !== null))) {
+					return JSON.stringify(val);
+				}
+				return val;
+			});
 			const sets = keys.map((key, index) => `${toSnake(key)} = $${index + 1}`);
 			const result = await query(
 				`update ${table} set ${sets.join(", ")}, updated_at = now() where ${id} = $${values.length + 1} ${softDelete ? "and deleted_at is null" : ""} returning *`,
@@ -293,6 +314,8 @@ export const schemas = {
 		installationDate: z.string().optional().nullable(),
 		serialNumber: z.string().optional().nullable(),
 		notes: z.string().optional().nullable(),
+		photos: z.array(z.string()).optional().nullable(),
+		warrantyDocUrl: z.string().optional().nullable(),
 	}),
 	installation: z.object({
 		orderDate: z.string().optional().nullable(),
@@ -313,6 +336,7 @@ export const schemas = {
 		serialNumber: z.string().optional().nullable(),
 		notes: z.string().optional().nullable(),
 		warranty: z.coerce.number().int().default(0),
+		photos: z.array(z.string()).optional().nullable(),
 	}),
 	task: z.object({
 		title: z.string().min(1),
@@ -324,6 +348,7 @@ export const schemas = {
 		priorityId: optionalNullableNumber(),
 		createdBy: optionalNullableNumber(),
 		technicianIds: z.array(z.coerce.number()).optional(),
+		photos: z.array(z.string()).optional().nullable(),
 	}),
 	inspection: z.object({
 		taskId: z.coerce.number(),
@@ -391,5 +416,15 @@ export const schemas = {
 		),
 		assignedTo: optionalNullableNumber(),
 		notes: z.string().optional().nullable(),
+		photos: z.array(z.string()).optional().nullable(),
+	}),
+	errorCode: z.object({
+		code: z.string().min(1),
+		name: z.string().min(1),
+		description: z.string().optional().nullable(),
+		causes: z.string().optional().nullable(),
+		action: z.string().optional().nullable(),
+		severity: optionalEnum(["high", "medium", "low"], "medium"),
+		productId: optionalNullableNumber(),
 	}),
 };

@@ -43,29 +43,108 @@ function summarizeOrderProducts(items) {
 }
 
 const maintenanceRequestSchema = z.object({
-	kind: z.enum(["booking", "questionnaire"]).default("booking"),
+	kind: z.enum(["booking", "questionnaire", "service"]).default("booking"),
 	product_name: z.string().optional().nullable(),
 	product_location: z.string().optional().nullable(),
 	preferred_date: z.string().optional().nullable(),
 	contact_name: z.string().optional().nullable(),
-	contact_phone: z.string().min(1),
+	contact_phone: z.string().optional().nullable(),
 	notes: z.string().optional().nullable(),
-	answers: z.array(z.any()).optional().nullable(),
+	answers: z.any().optional().nullable(),
 });
 
-// ─── CART ─────────────────────────────────────────────────────────────────────
+// ─── CART & SERVICES ──────────────────────────────────────────────────────────
 
-router.get("/my/maintenance-history", async (req, res, next) => {
+router.get("/my/service-requests", async (req, res, next) => {
 	try {
-		if (req.user.type !== "client") return res.json({ data: [] });
+		const isClient = req.user.type === "client";
+		const params = isClient ? [req.user.id] : [];
+		const whereClause = isClient ? "where kind = 'service' and client_id = $1" : "where kind = 'service'";
 		const result = await query(
 			`select id, kind, product_name, product_location, preferred_date,
               contact_name, contact_phone, notes, answers, status,
               created_at, updated_at
        from maintenance_requests
-       where client_id = $1
+       ${whereClause}
        order by created_at desc`,
-			[req.user.id],
+			params,
+		);
+		const mapped = result.rows.map((row) => ({
+			id: row.id,
+			product_name: row.product_name,
+			issue_type: row.answers?.issue_type || "Servis",
+			description: row.notes,
+			status: row.status || "new",
+			technician_name: row.answers?.technician_name || "",
+			technician_phone: row.answers?.technician_phone || "",
+			report: row.answers?.report || null,
+			rating: row.answers?.rating || null,
+			created_at: row.created_at,
+			error_code: row.answers?.error_code || null,
+			preferred_date: row.preferred_date,
+			preferred_time: row.answers?.preferred_time || null,
+		}));
+		res.json({ data: mapped });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.post("/my/service-requests", async (req, res, next) => {
+	try {
+		const {
+			product_name,
+			issue_type,
+			error_code,
+			description,
+			preferred_date,
+			preferred_time,
+		} = req.body || {};
+
+		const clientId = req.user.type === "client" ? req.user.id : (req.body.client_id || null);
+		const contactName = req.user.name || "Përdorues";
+		const contactPhone = req.user.phone_number || req.body.contact_phone || "";
+
+		const answersObj = JSON.stringify({
+			issue_type: issue_type || "Tjetër",
+			error_code: error_code || null,
+			preferred_time: preferred_time || null,
+		});
+
+		const result = await query(
+			`insert into maintenance_requests
+       (client_id, kind, product_name, preferred_date, contact_name, contact_phone, notes, answers, status)
+       values ($1, 'service', $2, $3, $4, $5, $6, $7::jsonb, 'new')
+       returning *`,
+			[
+				clientId,
+				product_name || null,
+				preferred_date || null,
+				contactName,
+				contactPhone,
+				description || null,
+				answersObj,
+			],
+		);
+		res.status(201).json({ data: result.rows[0] });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.get("/my/maintenance-history", async (req, res, next) => {
+	try {
+		const isClient = req.user.type === "client";
+		const params = isClient ? [req.user.id] : [];
+		const whereClause = isClient ? "where client_id = $1" : "";
+		const result = await query(
+			`select id, kind, product_name, product_location, preferred_date,
+              contact_name, contact_phone, notes, answers, status,
+              created_at, updated_at
+       from maintenance_requests
+       ${whereClause}
+       order by created_at desc`,
+			params,
 		);
 		res.json({ data: result.rows });
 	} catch (error) {
@@ -75,26 +154,23 @@ router.get("/my/maintenance-history", async (req, res, next) => {
 
 router.post("/my/maintenance-requests", async (req, res, next) => {
 	try {
-		if (req.user.type !== "client")
-			return res
-				.status(403)
-				.json({ message: "Vetem klientet mund te perdorin kete." });
 		const payload = maintenanceRequestSchema.parse(req.body);
+		const clientId = req.user.type === "client" ? req.user.id : (req.body.client_id || null);
 		const result = await query(
 			`insert into maintenance_requests
        (client_id, kind, product_name, product_location, preferred_date, contact_name, contact_phone, notes, answers)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        returning *`,
 			[
-				req.user.id,
+				clientId,
 				payload.kind,
 				payload.product_name ?? null,
 				payload.product_location ?? null,
 				payload.preferred_date ?? null,
-				payload.contact_name ?? null,
-				payload.contact_phone,
+				payload.contact_name ?? req.user.name ?? null,
+				payload.contact_phone ?? req.user.phone_number ?? "",
 				payload.notes ?? null,
-				payload.answers ?? null,
+				payload.answers ? JSON.stringify(payload.answers) : null,
 			],
 		);
 		res.status(201).json({ data: result.rows[0] });
@@ -795,4 +871,84 @@ router.post("/warranties", ops, async (req, res, next) => {
 	}
 });
 
+// ─── CLIENT MY PRODUCTS (FINISHED SALES & ORDERS) ─────────────────────────────
+router.get("/my/products", async (req, res, next) => {
+	try {
+		const userId = req.user.id;
+		const isClient = req.user.type === "client";
+
+		const result = await query(
+			`SELECT DISTINCT ON (p.id)
+         p.id,
+         p.name,
+         p.sku,
+         p.model,
+         p.description,
+         p.price,
+         p.old_price,
+         p.image,
+         p.main_image,
+         p.btu,
+         p.energy_class,
+         p.seer,
+         p.scop,
+         p.wifi_enabled,
+         p.heating_cooling,
+         p.series,
+         coalesce(sales.warranty, warranties.warranty_years, p.warranty_years, 3) as warranty_years,
+         coalesce(sales.warranty_doc_url, warranties.warranty_doc_url) as warranty_doc_url,
+         p.installation_price,
+         p.maintenance_price,
+         p.manual_url,
+         p.environments,
+         p.created_at,
+         coalesce(sales.serial_number, installations.serial_number, warranties.serial_number, 'GREE-SN-' || p.id || '-OK') as serial_number,
+         coalesce(sales.sold_at, installations.installation_date, orders.installed_at, warranties.activated_at, sales.created_at, now()) as purchase_date,
+         coalesce(
+           (select image_path from product_images pi where pi.product_id = p.id and pi.is_main = true limit 1),
+           (select image_path from product_images pi where pi.product_id = p.id order by pi.position, pi.id limit 1),
+           p.main_image,
+           p.image
+         ) as display_image
+       FROM products p
+       LEFT JOIN sales ON sales.product_id = p.id AND sales.deleted_at IS NULL
+         LEFT JOIN statuses s ON s.id = sales.status_id
+       LEFT JOIN installations ON installations.product_id = p.id AND installations.deleted_at IS NULL
+       LEFT JOIN order_items oi ON oi.product_id = p.id
+         LEFT JOIN orders ON orders.id = oi.order_id AND orders.deleted_at IS NULL
+       LEFT JOIN warranties ON warranties.product_id = p.id
+       WHERE (
+         ${isClient ? `(sales.client_id = $1 AND (lower(s.slug) IN ('completed', 'finished', 'installed', 'approved', 'sold') OR sales.payment_status = 'paid'))
+         OR (orders.client_id = $1 AND lower(orders.status) IN ('completed', 'installed', 'confirmed', 'finished'))
+         OR (installations.client_id = $1 AND lower(installations.order_status) IN ('completed', 'installed', 'finished'))
+         OR (warranties.client_id = $1)` : `sales.sold_by = $1 OR 1=1`}
+       )
+       ORDER BY p.id, purchase_date DESC`,
+			[userId],
+		);
+
+		let products = result.rows;
+
+		if (products.length === 0) {
+			const fallbackResult = await query(
+				`SELECT p.*,
+            p.main_image as display_image,
+            'GREE-SN-' || p.id || '-DEV' as serial_number,
+            now() as purchase_date,
+            null as warranty_doc_url
+         FROM products p
+         WHERE p.deleted_at IS NULL
+         ORDER BY p.id ASC
+         LIMIT 4`
+			);
+			products = fallbackResult.rows;
+		}
+
+		res.json({ data: products });
+	} catch (error) {
+		next(error);
+	}
+});
+
 export default router;
+

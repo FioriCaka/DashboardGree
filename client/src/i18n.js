@@ -1,6 +1,7 @@
 const en = {
 	// ── Modules ──────────────────────────────────────────────────────────────────
 	sales: "Sales",
+	planner: "Planner",
 	orders: "Orders",
 	installations: "Installs",
 	tasks: "Service",
@@ -11,6 +12,7 @@ const en = {
 	projects: "Projects",
 	news: "News & Blogs",
 	reports: "Reports",
+	error_codes: "Error Codes",
 
 	// ── Navigation / Shell ───────────────────────────────────────────────────────
 	dashboard: "Dashboard",
@@ -28,6 +30,8 @@ const en = {
 	save: "Save",
 	cancel: "Cancel",
 	close: "Close",
+	progressPhotos: "Progress Photos",
+	photos: "Progress Photos",
 	view: "View",
 	update: "Update",
 
@@ -39,6 +43,9 @@ const en = {
 	saved: "Saved.",
 	select: "Select",
 	noneOption: "— None —",
+	perPage: "Per page",
+	previous: "Previous",
+	next: "Next",
 
 	// ── Login ────────────────────────────────────────────────────────────────────
 	login: "Login",
@@ -119,8 +126,9 @@ const en = {
 	inHand: "In Hand",
 	manualUrl: "Manual URL",
 	environments: "Environments",
-	environment: "Environment",
-	warranty: "Warranty",
+	warranty: "Warranty (years)",
+	warrantyDocUrl: "Warranty Document (PDF/Photo)",
+	warranty_doc_url: "Warranty Document",
 	installation: "Installation",
 	mountingPrice: "Mounting Price (ALL)",
 	totalPrice: "Total Price (ALL)",
@@ -136,6 +144,10 @@ const en = {
 	rooms: "Rooms",
 	sku: "SKU",
 	price: "Price",
+	code: "Error Code",
+	causes: "Causes",
+	action: "Action / Solution",
+	severity: "Severity",
 
 	// ── Table column headers (snake_case DB column names) ────────────────────────
 	order_date: "Date",
@@ -294,6 +306,7 @@ const en = {
 const sq = {
 	// ── Modules ──────────────────────────────────────────────────────────────────
 	sales: "Shitjet",
+	planner: "Planner",
 	orders: "Porositë",
 	installations: "Instalimet",
 	tasks: "Servis",
@@ -304,6 +317,7 @@ const sq = {
 	projects: "Projektet",
 	news: "Lajme & Blog",
 	reports: "Raportet",
+	error_codes: "Kodet e Gabimit",
 
 	// ── Navigation / Shell ───────────────────────────────────────────────────────
 	dashboard: "Paneli",
@@ -321,6 +335,8 @@ const sq = {
 	save: "Ruaj",
 	cancel: "Anulo",
 	close: "Mbyll",
+	progressPhotos: "Foto të Progresit",
+	photos: "Foto Progresi",
 	view: "Shiko",
 	update: "Përditëso",
 
@@ -332,6 +348,9 @@ const sq = {
 	saved: "U ruajt.",
 	select: "Zgjidh",
 	noneOption: "— Asnjë —",
+	perPage: "Për faqe",
+	previous: "Mëparshme",
+	next: "Tjetra",
 
 	// ── Login ────────────────────────────────────────────────────────────────────
 	login: "Hyr",
@@ -413,7 +432,9 @@ const sq = {
 	manualUrl: "URL Manuali",
 	environments: "Ambientet",
 	environment: "Ambienti",
-	warranty: "Garancia",
+	warranty: "Garancia (vite)",
+	warrantyDocUrl: "Dokumenti i Garancisë (PDF/Foto)",
+	warranty_doc_url: "Dokumenti i Garancisë",
 	installation: "Instalim",
 	mountingPrice: "Çmimi i Montimit (ALL)",
 	totalPrice: "Totali (ALL)",
@@ -429,6 +450,10 @@ const sq = {
 	rooms: "Dhoma",
 	sku: "SKU",
 	price: "Çmimi",
+	code: "Kodi i Gabimit",
+	causes: "Shkaqet",
+	action: "Veprimi / Zgjidhja",
+	severity: "Rëndësia",
 
 	// ── Table column headers ──────────────────────────────────────────────────────
 	order_date: "Data",

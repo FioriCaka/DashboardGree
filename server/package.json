@@ -10,6 +10,7 @@
     "db:migrate:web-content": "node src/tools/migrate-web-content.js",
     "db:import-web-dump": "node src/tools/import-web-sql-dump.js",
     "db:seed": "node src/db/seed.js",
+    "db:pull-products": "node src/tools/pull_live_products_to_local.js",
     "api:smoke": "node src/tools/smoke-test.js"
   },
   "dependencies": {
@@ -23,6 +24,8 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "pg": "^8.13.1",
+    "sharp": "^0.35.4",
+    "ssh2": "^1.17.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

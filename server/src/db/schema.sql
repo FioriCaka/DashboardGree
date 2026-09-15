@@ -98,6 +98,7 @@ create table if not exists sales (
   sold_by bigint not null references users(id) on delete cascade,
   address text,
   sold_at timestamptz,
+  photos jsonb,
   deleted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -121,6 +122,7 @@ create table if not exists tasks (
   status_id bigint not null references statuses(id) on delete restrict,
   priority_id bigint references priorities(id) on delete set null,
   created_by bigint references users(id) on delete set null,
+  photos jsonb,
   deleted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -482,6 +484,7 @@ create table if not exists projects (
   status varchar(40) not null default 'pending',
   assigned_to bigint references users(id) on delete set null,
   notes text,
+  photos jsonb,
   deleted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -525,6 +528,7 @@ create table if not exists installations (
   installation_date date,
   serial_number varchar(100),
   notes text,
+  photos jsonb,
   warranty integer not null default 0,
   deleted_at timestamptz,
   created_at timestamptz not null default now(),
@@ -554,6 +558,8 @@ alter table sales add column if not exists technician_id bigint references users
 alter table sales add column if not exists installation_date date;
 alter table sales add column if not exists serial_number varchar(100);
 alter table sales add column if not exists notes text;
+alter table sales add column if not exists warranty_doc_url varchar(500);
+alter table warranties add column if not exists warranty_doc_url varchar(500);
 
 -- Website compatibility fields for the shared product catalog.
 alter table products add column if not exists category varchar(100);
@@ -687,3 +693,120 @@ create table if not exists catalogs (
   updated_at timestamptz not null default now()
 );
 
+alter table if exists projects add column if not exists photos jsonb;
+alter table if exists sales add column if not exists photos jsonb;
+alter table if exists tasks add column if not exists photos jsonb;
+alter table if exists installations add column if not exists photos jsonb;
+alter table if exists orders add column if not exists photos jsonb;
+
+-- ── Microsoft Planner Tables ──────────────────────────────────────────────────
+
+create table if not exists planner_plans (
+  id bigserial primary key,
+  title varchar(255) not null,
+  description text,
+  color_code varchar(30) default '#0078D4',
+  is_favorite boolean default false,
+  created_by bigint references users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists planner_buckets (
+  id bigserial primary key,
+  plan_id bigint not null references planner_plans(id) on delete cascade,
+  name varchar(190) not null,
+  order_index integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists planner_tasks (
+  id bigserial primary key,
+  plan_id bigint not null references planner_plans(id) on delete cascade,
+  bucket_id bigint not null references planner_buckets(id) on delete cascade,
+  title varchar(255) not null,
+  description text,
+  progress_status varchar(50) not null default 'not_started',
+  priority varchar(50) not null default 'medium',
+  start_date date,
+  due_date date,
+  completed_at timestamptz,
+  cover_image_url text,
+  preview_type varchar(50) default 'checklist',
+  order_index integer not null default 0,
+  created_by bigint references users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists planner_task_assignees (
+  task_id bigint not null references planner_tasks(id) on delete cascade,
+  user_id bigint not null references users(id) on delete cascade,
+  primary key (task_id, user_id)
+);
+
+create table if not exists planner_checklists (
+  id bigserial primary key,
+  task_id bigint not null references planner_tasks(id) on delete cascade,
+  title varchar(255) not null,
+  is_completed boolean not null default false,
+  order_index integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists planner_labels (
+  id bigserial primary key,
+  plan_id bigint not null references planner_plans(id) on delete cascade,
+  name varchar(100) not null,
+  color_code varchar(30) not null
+);
+
+create table if not exists planner_task_labels (
+  task_id bigint not null references planner_tasks(id) on delete cascade,
+  label_id bigint not null references planner_labels(id) on delete cascade,
+  primary key (task_id, label_id)
+);
+
+create table if not exists planner_comments (
+  id bigserial primary key,
+  task_id bigint not null references planner_tasks(id) on delete cascade,
+  user_id bigint references users(id) on delete set null,
+  comment text not null,
+  is_system_log boolean default false,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists planner_attachments (
+  id bigserial primary key,
+  task_id bigint not null references planner_tasks(id) on delete cascade,
+  file_name varchar(255) not null,
+  file_url text not null,
+  file_type varchar(100),
+  file_size bigint,
+  uploaded_by bigint references users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_planner_buckets_plan on planner_buckets(plan_id);
+create index if not exists idx_planner_tasks_plan on planner_tasks(plan_id);
+create index if not exists idx_planner_tasks_bucket on planner_tasks(bucket_id);
+create index if not exists idx_planner_checklists_task on planner_checklists(task_id);
+
+-- ─── PRODUCT ERROR CODES ──────────────────────────────────────────────────────
+
+create table if not exists error_codes (
+  id bigserial primary key,
+  code varchar(50) not null,
+  name varchar(255) not null,
+  description text,
+  causes text,
+  action text,
+  severity varchar(20) not null default 'medium',
+  product_id bigint references products(id) on delete set null,
+  deleted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_error_codes_code on error_codes(code);
+create index if not exists idx_error_codes_product on error_codes(product_id);

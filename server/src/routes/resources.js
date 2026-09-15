@@ -39,6 +39,33 @@ const uploadProductImage = multer({
 	},
 }).single("image");
 
+const warrantyDocStorage = multer.diskStorage({
+	destination: async (_req, _file, cb) => {
+		const dir = path.join(uploadsRoot, "warranties");
+		await fs.mkdir(dir, { recursive: true });
+		cb(null, dir);
+	},
+	filename: (_req, file, cb) => {
+		const ext = path.extname(file.originalname).toLowerCase();
+		cb(null, `warranty-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+	},
+});
+
+const uploadWarrantyDoc = multer({
+	storage: warrantyDocStorage,
+	limits: { fileSize: 15 * 1024 * 1024 },
+	fileFilter: (_req, file, cb) => {
+		if (
+			/^(image\/(jpeg|png|webp|gif)|application\/pdf)$/.test(file.mimetype) ||
+			file.originalname.toLowerCase().endsWith(".pdf")
+		) {
+			cb(null, true);
+		} else {
+			cb(new Error("Only PDF documents and image files (JPEG, PNG, WebP) are allowed"));
+		}
+	},
+}).single("file");
+
 const router = Router();
 
 const admin = requireRoles("admin");
@@ -211,6 +238,7 @@ const products = resourceRouter({
 		"maintenancePrice",
 		"manualUrl",
 		"environments",
+		"isVisible",
 	],
 	schema: schemas.product,
 });
@@ -369,6 +397,8 @@ const sales = resourceRouter({
 		"installationDate",
 		"serialNumber",
 		"notes",
+		"photos",
+		"warrantyDocUrl",
 	],
 	schema: schemas.sale,
 	beforeCreate: async (payload, req) => ({
@@ -435,6 +465,8 @@ sales.list = async (req, res, next) => {
 					sales.serial_number,
 					sales.notes,
 					sales.warranty,
+					sales.warranty_doc_url,
+					sales.photos,
 					sales.created_at
 				from sales
 				left join products on products.id = sales.product_id
@@ -480,6 +512,8 @@ sales.list = async (req, res, next) => {
 					null::text as serial_number,
 					orders.notes,
 					null::int as warranty,
+					null::text as warranty_doc_url,
+					orders.photos,
 					orders.created_at
 				from orders
 				left join order_items oi on oi.order_id = orders.id
@@ -533,6 +567,7 @@ const tasks = resourceRouter({
 		"statusId",
 		"priorityId",
 		"createdBy",
+		"photos",
 	],
 	schema: schemas.task,
 	beforeCreate: async (payload, req) => ({
@@ -682,6 +717,7 @@ const projects = resourceRouter({
 		"status",
 		"assignedTo",
 		"notes",
+		"photos",
 	],
 	schema: schemas.project,
 	beforeCreate: (payload, req) => ({
@@ -731,6 +767,7 @@ const installations = resourceRouter({
 		"serialNumber",
 		"notes",
 		"warranty",
+		"photos",
 	],
 	schema: schemas.installation,
 	beforeCreate: (payload, req) => ({
@@ -821,6 +858,7 @@ router.put("/orders/:id", staff, async (req, res, next) => {
 			status: "status",
 			preferredInstallationDate: "preferred_installation_date",
 			notes: "notes",
+			photos: "photos",
 		};
 		const entries = Object.entries(allowed)
 			.filter(([key]) => raw[key] !== undefined)
@@ -830,7 +868,10 @@ router.put("/orders/:id", staff, async (req, res, next) => {
 			return res.status(422).json({ message: "No writable fields supplied" });
 		}
 
-		const values = entries.map(([, value]) => (value === "" ? null : value));
+		const values = entries.map(([column, value]) => {
+			if (column === "photos") return value ? JSON.stringify(value) : null;
+			return value === "" ? null : value;
+		});
 		const sets = entries.map(([column], index) => `${column} = $${index + 1}`);
 		const result = await query(
 			`update orders
@@ -865,6 +906,31 @@ router.delete("/orders/:id", staff, async (req, res, next) => {
 	}
 });
 
+const errorCodes = resourceRouter({
+	table: "error_codes",
+	select:
+		"error_codes.id, error_codes.code, error_codes.name, error_codes.description, error_codes.causes, error_codes.action, error_codes.severity, error_codes.product_id, products.name as product_name, error_codes.created_at, error_codes.updated_at",
+	listJoins: "left join products on products.id = error_codes.product_id",
+	searchColumns: [
+		"error_codes.code",
+		"error_codes.name",
+		"error_codes.description",
+		"error_codes.causes",
+		"error_codes.action",
+		"products.name",
+	],
+	writable: [
+		"code",
+		"name",
+		"description",
+		"causes",
+		"action",
+		"severity",
+		"productId",
+	],
+	schema: schemas.errorCode,
+});
+
 mount("/users", users, [admin]);
 mount("/clients", clients, [staff]);
 mount("/categories", categories, [staff]);
@@ -879,6 +945,21 @@ mount("/news", news, { read: [], write: [manager] });
 mount("/tickets", tickets, [ops]);
 mount("/complaints", complaints, [ops]);
 mount("/projects", projects, [ops]);
+mount("/error-codes", errorCodes, { read: [], write: [admin] });
+mount("/error_codes", errorCodes, { read: [], write: [admin] });
+
+router.post("/upload-warranty", staff, (req, res, next) => {
+	uploadWarrantyDoc(req, res, (err) => {
+		if (err) return next(err);
+		if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+		const fileUrl = `/uploads/warranties/${req.file.filename}`;
+		res.json({
+			url: fileUrl,
+			filename: req.file.originalname,
+			size: req.file.size,
+		});
+	});
+});
 
 router.get("/my/tickets", async (req, res, next) => {
 	try {

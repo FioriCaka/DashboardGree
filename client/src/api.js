@@ -39,6 +39,8 @@ export async function api(path, options = {}) {
   return data;
 }
 
+export const apiFetch = api;
+
 export const authApi = {
   login: (payload) =>
     api("/login", { method: "POST", body: JSON.stringify(payload) }),
@@ -88,3 +90,18 @@ export const productImageApi = {
   setMain: (productId, imageId) =>
     api(`/products/${productId}/images/${imageId}/set-main`, { method: "PATCH" }),
 };
+
+export async function uploadWarrantyDoc(file) {
+  const token = getToken();
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch(`${API_URL}/upload-warranty`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message ?? "Upload failed");
+  return data;
+}
+

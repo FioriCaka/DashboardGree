@@ -8,6 +8,7 @@ import Newspaper from "lucide-react/dist/esm/icons/newspaper.js";
 import ShoppingCart from "lucide-react/dist/esm/icons/shopping-cart.js";
 import Users from "lucide-react/dist/esm/icons/users.js";
 import Wrench from "lucide-react/dist/esm/icons/wrench.js";
+import Kanban from "lucide-react/dist/esm/icons/kanban.js";
 
 export const ASSET_BASE = (
 	import.meta.env.VITE_API_URL || "http://localhost:4000/api"
@@ -20,6 +21,13 @@ export function assetUrl(path) {
 }
 
 export const modules = [
+	{
+		key: "planner",
+		label: "Planner",
+		icon: Kanban,
+		roles: ["admin", "menaxher", "shites", "teknik"],
+		columns: ["id", "title", "bucket_name", "progress_status", "priority", "due_date"],
+	},
 	{
 		key: "sales",
 		label: "Sales",
@@ -40,10 +48,12 @@ export const modules = [
 			"priority_label",
 			"seller_name",
 			"technician_name",
+			"photos",
 			"installation_date",
 			"serial_number",
 			"notes",
 			"warranty",
+			"warranty_doc_url",
 		],
 	},
 	{
@@ -71,6 +81,7 @@ export const modules = [
 			"priority",
 			"seller_name",
 			"technician_name",
+			"photos",
 			"installation_date",
 			"serial_number",
 			"notes",
@@ -89,7 +100,7 @@ export const modules = [
 		label: "Products",
 		icon: Boxes,
 		roles: ["admin", "menaxher", "shites"],
-		columns: ["id", "name", "sku", "main_category_name", "price", "stock"],
+		columns: ["id", "name", "sku", "main_category_name", "price", "stock", "is_visible"],
 	},
 	{
 		key: "clients",
@@ -122,7 +133,7 @@ export const modules = [
 		label: "Maintenance",
 		icon: CheckCircle2,
 		roles: ["admin", "menaxher", "teknik", "shites"],
-		columns: ["id", "task_title", "technician_name", "scheduled_at", "status"],
+		columns: ["id", "task_title", "technician_name", "scheduled_at", "status", "photos"],
 	},
 	{
 		key: "projects",
@@ -138,6 +149,7 @@ export const modules = [
 			"rooms",
 			"status",
 			"assigned_to_name",
+			"photos",
 			"created_at",
 		],
 	},
@@ -161,6 +173,21 @@ export const modules = [
 		icon: FileText,
 		roles: ["admin", "menaxher", "teknik"],
 		columns: ["id", "task_title", "status_label", "completed_at"],
+	},
+	{
+		key: "error_codes",
+		label: "Error Codes",
+		icon: AlertCircle,
+		roles: ["admin"],
+		columns: [
+			"code",
+			"name",
+			"severity",
+			"product_name",
+			"description",
+			"causes",
+			"action",
+		],
 	},
 ];
 
@@ -209,6 +236,7 @@ export const formFields = {
 		"maintenancePrice",
 		"productCode",
 		"environments",
+		"isVisible",
 	],
 	clients: [
 		"name",
@@ -243,6 +271,7 @@ export const formFields = {
 		"unitPrice",
 		"discount",
 		"warranty",
+		"warrantyDocUrl",
 		"installation",
 		"mountingPrice",
 		"totalPrice",
@@ -290,6 +319,15 @@ export const formFields = {
 		"notes",
 	],
 	news: ["title", "content", "type", "image", "publishedAt"],
+	error_codes: [
+		"code",
+		"name",
+		"severity",
+		"productId",
+		"description",
+		"causes",
+		"action",
+	],
 };
 
 export const labels = {
@@ -348,7 +386,12 @@ export const labels = {
 	environments: "Environments (Ambienti)",
 	areaSqm: "Area (m²)",
 	environment: "Environment",
+	isVisible: "Show on Website",
 	orders: "Porositë",
+	code: "Kodi",
+	causes: "Shkaqet",
+	action: "Veprimi / Zgjidhja",
+	severity: "Rëndësia",
 };
 
 export const staticOptions = {
@@ -418,5 +461,10 @@ export const staticOptions = {
 		{ value: "normal", label: "Normale" },
 		{ value: "high", label: "E lartë" },
 		{ value: "urgent", label: "Urgjente" },
+	],
+	severity: [
+		{ value: "high", label: "Servis i menjëhershëm (High)" },
+		{ value: "medium", label: "Kërkohet servis (Medium)" },
+		{ value: "low", label: "Jo urgjent (Low)" },
 	],
 };
