@@ -619,6 +619,16 @@ create table if not exists web_news (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists web_news_gallery (
+  id bigserial primary key,
+  news_id bigint not null references web_news(id) on delete cascade,
+  image varchar(500) not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_web_news_gallery_news on web_news_gallery(news_id);
+
 create table if not exists services (
   id bigserial primary key,
   title varchar(100) not null,

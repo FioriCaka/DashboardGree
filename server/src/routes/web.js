@@ -741,37 +741,87 @@ router.get("/web/news", async (_req, res, next) => {
 
 router.get("/web/news/:id", async (req, res, next) => {
 	try {
-		const result = await query("select * from web_news where id = $1", [req.params.id]);
-		if (!result.rows[0]) throw notFound();
-		res.json(result.rows[0]);
+		const [news, gallery] = await Promise.all([
+			query("select * from web_news where id = $1", [req.params.id]),
+			query("select id, image, sort_order from web_news_gallery where news_id = $1 order by sort_order asc, id asc", [req.params.id]),
+		]);
+		if (!news.rows[0]) throw notFound();
+		res.json({ ...news.rows[0], gallery: gallery.rows });
 	} catch (error) {
 		next(error);
 	}
 });
 
-router.post("/web/news", ...adminOnly, upload.single("image"), async (req, res, next) => {
+router.post("/web/news", ...adminOnly, upload.fields([{ name: "image", maxCount: 1 }, { name: "gallery", maxCount: 30 }]), async (req, res, next) => {
 	try {
+		const primaryImage = assetPath(req.files?.image?.[0]) || (req.file ? assetPath(req.file) : null);
+		const gallery = (req.files?.gallery || []).map(assetPath).filter(Boolean);
 		const result = await query(
 			"insert into web_news (title, content, excerpt, image) values ($1, $2, $3, $4) returning id",
-			[req.body.title, req.body.content || null, req.body.excerpt || null, assetPath(req.file)],
+			[req.body.title, req.body.content || null, req.body.excerpt || null, primaryImage || gallery[0] || null],
 		);
+		for (let index = 0; index < gallery.length; index += 1) {
+			await query("insert into web_news_gallery (news_id, image, sort_order) values ($1, $2, $3)", [result.rows[0].id, gallery[index], index]);
+		}
 		res.json({ id: result.rows[0].id, message: "News created" });
 	} catch (error) {
 		next(error);
 	}
 });
 
-router.put("/web/news/:id", ...adminOnly, upload.single("image"), async (req, res, next) => {
+router.put("/web/news/:id", ...adminOnly, upload.fields([{ name: "image", maxCount: 1 }, { name: "gallery", maxCount: 30 }]), async (req, res, next) => {
 	try {
 		const fields = { title: req.body.title, content: req.body.content || null, excerpt: req.body.excerpt || null };
-		const image = assetPath(req.file);
+		const image = assetPath(req.files?.image?.[0]) || (req.file ? assetPath(req.file) : null);
 		if (image) fields.image = image;
 		const entries = Object.entries(fields);
 		await query(
 			`update web_news set ${entries.map(([key], index) => `${key} = $${index + 1}`).join(", ")}, updated_at = now() where id = $${entries.length + 1}`,
 			[...entries.map(([, value]) => value), req.params.id],
 		);
+		const gallery = (req.files?.gallery || []).map(assetPath).filter(Boolean);
+		for (let index = 0; index < gallery.length; index += 1) {
+			await query(
+				"insert into web_news_gallery (news_id, image, sort_order) values ($1, $2, coalesce((select max(sort_order) + 1 from web_news_gallery where news_id = $1), 0) + $3)",
+				[req.params.id, gallery[index], index],
+			);
+		}
 		res.json({ message: "News updated" });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.delete("/web/news/:id/gallery/:imageId", ...adminOnly, async (req, res, next) => {
+	try {
+		await query("delete from web_news_gallery where id = $1 and news_id = $2", [req.params.imageId, req.params.id]);
+		const gallery = await query("select id, image, sort_order from web_news_gallery where news_id = $1 order by sort_order asc, id asc", [req.params.id]);
+		res.json({ message: "Gallery image deleted", gallery: gallery.rows });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.put("/web/news/:id/gallery/:imageId/reorder", ...adminOnly, async (req, res, next) => {
+	try {
+		const direction = req.body.direction;
+		if (!["up", "down"].includes(direction)) throw new HttpError(400, "Invalid direction");
+		const current = await query("select id, sort_order from web_news_gallery where id = $1 and news_id = $2", [req.params.imageId, req.params.id]);
+		if (!current.rows[0]) throw notFound();
+		const target = await query(
+			direction === "up"
+				? "select id, sort_order from web_news_gallery where news_id = $1 and sort_order < $2 order by sort_order desc, id desc limit 1"
+				: "select id, sort_order from web_news_gallery where news_id = $1 and sort_order > $2 order by sort_order asc, id asc limit 1",
+			[req.params.id, current.rows[0].sort_order],
+		);
+		if (target.rows[0]) {
+			await query(
+				"update web_news_gallery set sort_order = case when id = $1 then $2 when id = $3 then $4 end where id in ($1, $3)",
+				[current.rows[0].id, target.rows[0].sort_order, target.rows[0].id, current.rows[0].sort_order],
+			);
+		}
+		const gallery = await query("select id, image, sort_order from web_news_gallery where news_id = $1 order by sort_order asc, id asc", [req.params.id]);
+		res.json({ message: target.rows[0] ? "Gallery reordered" : "No reorder needed", gallery: gallery.rows });
 	} catch (error) {
 		next(error);
 	}
