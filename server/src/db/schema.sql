@@ -576,6 +576,7 @@ alter table products add column if not exists sort_order integer not null defaul
 
 alter table main_categories add column if not exists sort_order integer not null default 0;
 alter table main_categories add column if not exists is_special boolean not null default false;
+alter table main_categories add column if not exists tree_type varchar(50) not null default 'residential_gas';
 alter table subcategories add column if not exists short_description text;
 alter table subcategories add column if not exists is_special boolean not null default false;
 alter table subcategories add column if not exists is_header boolean not null default false;
@@ -821,3 +822,33 @@ create table if not exists error_codes (
 
 create index if not exists idx_error_codes_code on error_codes(code);
 create index if not exists idx_error_codes_product on error_codes(product_id);
+
+-- ─── WEB CATEGORIES & SUBCATEGORIES ──────────────────────────────────────────
+
+create table if not exists main_categories (
+  id bigserial primary key,
+  name varchar(190) not null unique,
+  sort_order integer not null default 0,
+  is_special boolean not null default false,
+  tree_type varchar(50) not null default 'residential_gas',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists subcategories (
+  id bigserial primary key,
+  main_category_id bigint references main_categories(id) on delete cascade,
+  name varchar(190) not null,
+  tagline varchar(255),
+  description text,
+  short_description text,
+  image varchar(500),
+  is_special boolean not null default false,
+  is_header boolean not null default false,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_subcategories_main_cat on subcategories(main_category_id);
+
