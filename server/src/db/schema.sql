@@ -575,6 +575,7 @@ alter table products add column if not exists is_featured boolean not null defau
 alter table products add column if not exists sort_order integer not null default 0;
 
 alter table main_categories add column if not exists sort_order integer not null default 0;
+alter table main_categories add column if not exists is_special boolean not null default false;
 alter table subcategories add column if not exists short_description text;
 alter table subcategories add column if not exists is_special boolean not null default false;
 alter table subcategories add column if not exists is_header boolean not null default false;

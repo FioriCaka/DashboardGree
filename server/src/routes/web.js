@@ -306,7 +306,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 	try {
 		const includeEmpty = String(req.query.includeEmpty || "") === "1";
 		const [mainRows, subRows, countsRows] = await Promise.all([
-			query("select id, name, sort_order from main_categories order by sort_order asc, id asc"),
+			query("select id, name, sort_order, is_special from main_categories order by sort_order asc, id asc"),
 			query("select id, name, main_category_id, tagline, short_description, is_special, is_header, sort_order from subcategories order by sort_order asc, id asc"),
 			query(
 				`select main_category_id, subcategory_id, count(*)::int as total
@@ -327,6 +327,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 				id: Number(row.id),
 				name: row.name,
 				sort_order: Number(row.sort_order || 0),
+				is_special: Boolean(row.is_special),
 				parent_id: 0,
 				type: "main",
 				product_count: mainCounts.get(Number(row.id)) || 0,
@@ -389,8 +390,8 @@ router.post("/web/products/categories", ...adminOnly, async (req, res, next) => 
 			return res.json({ message: "Category saved", category: { ...result.rows[0], parent_id: parentId, type: "sub" } });
 		}
 		const result = await query(
-			"insert into main_categories (name, sort_order) values ($1, $2) returning *",
-			[name, Number(req.body.sort_order || 0)],
+			"insert into main_categories (name, sort_order, is_special) values ($1, $2, $3) returning *",
+			[name, Number(req.body.sort_order || 0), bool(req.body.is_special)],
 		);
 		res.json({ message: "Category saved", category: { ...result.rows[0], parent_id: 0, type: "main" } });
 	} catch (error) {
@@ -416,7 +417,7 @@ router.put("/web/products/categories/:id", ...adminOnly, async (req, res, next) 
 			await query("update products set category = $1 where subcategory_id = $2", [name, id]);
 			return res.json({ message: "Category updated", category: { id, name, parent_id: mainCategoryId, main_category_id: mainCategoryId, type: "sub" } });
 		}
-		await query("update main_categories set name = $1, sort_order = $2, updated_at = now() where id = $3", [name, Number(req.body.sort_order || 0), id]);
+		await query("update main_categories set name = $1, sort_order = $2, is_special = $3, updated_at = now() where id = $4", [name, Number(req.body.sort_order || 0), bool(req.body.is_special), id]);
 		res.json({ message: "Category updated", category: { id, name, parent_id: 0, type: "main" } });
 	} catch (error) {
 		next(error);
