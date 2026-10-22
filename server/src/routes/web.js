@@ -307,7 +307,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 		const includeEmpty = String(req.query.includeEmpty || "") === "1";
 		const [mainRows, subRows, countsRows] = await Promise.all([
 			query("select id, name, sort_order, is_special, tree_type from main_categories order by sort_order asc, id asc"),
-			query("select id, name, main_category_id, tagline, short_description, is_special, is_header, sort_order, image from subcategories order by sort_order asc, id asc"),
+			query("select id, name, main_category_id, tagline, short_description, short_description_2, is_special, is_header, sort_order, image from subcategories order by sort_order asc, id asc"),
 			query(
 				`select main_category_id, subcategory_id, count(*)::int as total
 				 from products
@@ -346,6 +346,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 				type: "sub",
 				tagline: row.tagline || null,
 				short_description: row.short_description || null,
+				short_description_2: row.short_description_2 || null,
 				is_special: Boolean(row.is_special),
 				is_header: Boolean(row.is_header),
 				sort_order: Number(row.sort_order || 0),
@@ -385,10 +386,10 @@ router.post("/web/products/categories", ...adminOnly, upload.single("image"), as
 		const image = req.file ? productAssetPath(req.file) : (req.body?.image ? String(req.body.image).trim() : null);
 		if (parentId) {
 			const result = await query(
-				`insert into subcategories (main_category_id, name, tagline, short_description, is_special, is_header, sort_order, image)
-				 values ($1, $2, $3, $4, $5, $6, $7, $8)
+				`insert into subcategories (main_category_id, name, tagline, short_description, short_description_2, is_special, is_header, sort_order, image)
+				 values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 				 returning *`,
-				[parentId, name, req.body.tagline || null, req.body.short_description || null, bool(req.body.is_special), bool(req.body.is_header), Number(req.body.sort_order || 0), image],
+				[parentId, name, req.body.tagline || null, req.body.short_description || null, req.body.short_description_2 || null, bool(req.body.is_special), bool(req.body.is_header), Number(req.body.sort_order || 0), image],
 			);
 			return res.json({ message: "Category saved", category: { ...result.rows[0], parent_id: parentId, type: "sub" } });
 		}
@@ -416,22 +417,22 @@ router.put("/web/products/categories/:id", ...adminOnly, upload.single("image"),
 			if (newImage !== undefined) {
 				await query(
 					`update subcategories
-					 set name = $1, main_category_id = $2, tagline = $3, short_description = $4,
-					     is_special = $5, is_header = $6, sort_order = $7, image = $8, updated_at = now()
-					 where id = $9`,
-					[name, mainCategoryId, req.body.tagline || null, req.body.short_description || null, bool(req.body.is_special), bool(req.body.is_header), Number(req.body.sort_order || 0), newImage, id],
+					 set name = $1, main_category_id = $2, tagline = $3, short_description = $4, short_description_2 = $5,
+					     is_special = $6, is_header = $7, sort_order = $8, image = $9, updated_at = now()
+					 where id = $10`,
+					[name, mainCategoryId, req.body.tagline || null, req.body.short_description || null, req.body.short_description_2 || null, bool(req.body.is_special), bool(req.body.is_header), Number(req.body.sort_order || 0), newImage, id],
 				);
 			} else {
 				await query(
 					`update subcategories
-					 set name = $1, main_category_id = $2, tagline = $3, short_description = $4,
-					     is_special = $5, is_header = $6, sort_order = $7, updated_at = now()
-					 where id = $8`,
-					[name, mainCategoryId, req.body.tagline || null, req.body.short_description || null, bool(req.body.is_special), bool(req.body.is_header), Number(req.body.sort_order || 0), id],
+					 set name = $1, main_category_id = $2, tagline = $3, short_description = $4, short_description_2 = $5,
+					     is_special = $6, is_header = $7, sort_order = $8, updated_at = now()
+					 where id = $9`,
+					[name, mainCategoryId, req.body.tagline || null, req.body.short_description || null, req.body.short_description_2 || null, bool(req.body.is_special), bool(req.body.is_header), Number(req.body.sort_order || 0), id],
 				);
 			}
 			await query("update products set category = $1 where subcategory_id = $2", [name, id]);
-			return res.json({ message: "Category updated", category: { id, name, parent_id: mainCategoryId, main_category_id: mainCategoryId, image: newImage, type: "sub" } });
+			return res.json({ message: "Category updated", category: { id, name, parent_id: mainCategoryId, main_category_id: mainCategoryId, short_description_2: req.body.short_description_2 || null, image: newImage, type: "sub" } });
 		}
 		const treeType = String(req.body?.tree_type || "residential_gas");
 		await query("update main_categories set name = $1, sort_order = $2, is_special = $3, tree_type = $4, updated_at = now() where id = $5", [name, Number(req.body.sort_order || 0), bool(req.body.is_special), treeType, id]);

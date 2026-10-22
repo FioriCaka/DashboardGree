@@ -578,6 +578,7 @@ alter table main_categories add column if not exists sort_order integer not null
 alter table main_categories add column if not exists is_special boolean not null default false;
 alter table main_categories add column if not exists tree_type varchar(50) not null default 'residential_gas';
 alter table subcategories add column if not exists short_description text;
+alter table subcategories add column if not exists short_description_2 text;
 alter table subcategories add column if not exists is_special boolean not null default false;
 alter table subcategories add column if not exists is_header boolean not null default false;
 alter table subcategories add column if not exists sort_order integer not null default 0;
@@ -842,6 +843,7 @@ create table if not exists subcategories (
   tagline varchar(255),
   description text,
   short_description text,
+  short_description_2 text,
   image varchar(500),
   is_special boolean not null default false,
   is_header boolean not null default false,
