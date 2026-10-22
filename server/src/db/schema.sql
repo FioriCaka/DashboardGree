@@ -448,9 +448,9 @@ create table if not exists subcategories (
   description text,
   main_category_id bigint references main_categories(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique(name, main_category_id)
+  updated_at timestamptz not null default now()
 );
+alter table subcategories drop constraint if exists subcategories_name_main_category_id_key;
 
 do $$ begin
   if exists (
