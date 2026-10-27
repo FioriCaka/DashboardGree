@@ -187,28 +187,51 @@ function mapProduct(row) {
 }
 
 async function addProductImages(productId, primaryImage, galleryImages = []) {
-	const images = [primaryImage, ...galleryImages].filter(Boolean);
-	if (!images.length) return;
-	await query("update product_images set is_main = false where product_id = $1", [productId]);
-	for (let index = 0; index < images.length; index += 1) {
-		const image = images[index];
+	const hasExistingMain = (
+		await query("select id from product_images where product_id = $1 and is_main = true limit 1", [productId])
+	).rows.length > 0;
+
+	if (primaryImage) {
+		await query("update product_images set is_main = false where product_id = $1", [productId]);
+		const existing = await query(
+			"select id from product_images where product_id = $1 and image_path = $2 limit 1",
+			[productId, primaryImage],
+		);
+		if (existing.rows[0]) {
+			await query(
+				"update product_images set is_main = true, position = 0, updated_at = now() where id = $1",
+				[existing.rows[0].id],
+			);
+		} else {
+			await query(
+				"insert into product_images (product_id, image_path, is_main, position) values ($1, $2, true, 0)",
+				[productId, primaryImage],
+			);
+		}
+	}
+
+	const maxPosResult = await query("select max(position) as max_pos from product_images where product_id = $1", [productId]);
+	let startPos = (maxPosResult.rows[0]?.max_pos ?? 0) + 1;
+
+	for (let index = 0; index < galleryImages.length; index += 1) {
+		const image = galleryImages[index];
+		if (!image || image === primaryImage) continue;
 		const existing = await query(
 			"select id from product_images where product_id = $1 and image_path = $2 limit 1",
 			[productId, image],
 		);
+		const shouldBeMain = !primaryImage && !hasExistingMain && index === 0;
 		if (existing.rows[0]) {
 			await query(
-				"update product_images set is_main = $1, position = $2, updated_at = now() where id = $3",
-				[index === 0, index, existing.rows[0].id],
+				"update product_images set position = $1, is_main = coalesce($2, is_main), updated_at = now() where id = $3",
+				[startPos++, shouldBeMain ? true : null, existing.rows[0].id],
 			);
-			continue;
+		} else {
+			await query(
+				"insert into product_images (product_id, image_path, is_main, position) values ($1, $2, $3, $4)",
+				[productId, image, shouldBeMain, startPos++],
+			);
 		}
-		await query(
-			`insert into product_images (product_id, image_path, is_main, position)
-			 values ($1, $2, $3, $4)
-			 `,
-			[productId, image, index === 0, index],
-		);
 	}
 }
 
@@ -365,14 +388,17 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 router.get("/web/products/:id", async (req, res, next) => {
 	try {
 		const [base, images, prices, options, features] = await Promise.all([
-			query(`${productSelect} where p.id = $1 and p.deleted_at is null and p.is_visible = true`, [req.params.id]),
+			query(`${productSelect} where p.id = $1 and p.deleted_at is null`, [req.params.id]),
 			query("select id, image_path, is_main, position, image_path as image from product_images where product_id = $1 order by is_main desc, position asc, id asc", [req.params.id]),
 			query("select pp.usergroup_id, pp.lower_limit, pp.price, ug.name as usergroup_name from product_prices pp left join user_groups ug on ug.id = pp.usergroup_id where pp.product_id = $1 order by pp.lower_limit asc", [req.params.id]),
 			query("select po.id, o.name as option_name, po.variant_id, ov.name as variant_name from product_options po join options o on o.id = po.option_id join option_variants ov on ov.id = po.variant_id where po.product_id = $1 order by o.name, ov.name", [req.params.id]),
 			query("select pfv.id, f.name as feature_name, pfv.variant_id, fv.name as variant_name from product_feature_values pfv join features f on f.id = pfv.feature_id join feature_variants fv on fv.id = pfv.variant_id where pfv.product_id = $1 order by f.name, fv.name", [req.params.id]),
 		]);
 		if (!base.rows[0]) throw notFound();
-		res.json({ ...mapProduct(base.rows[0]), images: images.rows, prices: prices.rows, options: options.rows, feature_values: features.rows });
+		const productImages = images.rows.length
+			? images.rows
+			: (base.rows[0].display_image ? [{ id: "main", image_path: base.rows[0].display_image, image: base.rows[0].display_image, is_main: true, position: 0 }] : []);
+		res.json({ ...mapProduct(base.rows[0]), images: productImages, prices: prices.rows, options: options.rows, feature_values: features.rows });
 	} catch (error) {
 		next(error);
 	}
@@ -527,6 +553,9 @@ router.put("/web/products/:id", ...adminOnly, upload.fields([{ name: "image", ma
 		if (primaryImage) {
 			fields.image = primaryImage;
 			fields.main_image = primaryImage;
+		} else if (bool(req.body.remove_image) || bool(req.body.remove_main_image)) {
+			fields.image = null;
+			fields.main_image = null;
 		}
 		const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
 		await query(
@@ -535,7 +564,9 @@ router.put("/web/products/:id", ...adminOnly, upload.fields([{ name: "image", ma
 			[...entries.map(([, value]) => value), req.params.id],
 		);
 		if (req.body.category) await assignCategoryPath(req.params.id, req.body.category);
-		await addProductImages(req.params.id, primaryImage, gallery);
+		if (primaryImage || gallery.length) {
+			await addProductImages(req.params.id, primaryImage, gallery);
+		}
 		res.json({ message: "Product updated" });
 	} catch (error) {
 		next(error);
@@ -546,6 +577,106 @@ router.delete("/web/products/:id", ...adminOnly, async (req, res, next) => {
 	try {
 		await query("update products set deleted_at = now(), updated_at = now() where id = $1", [req.params.id]);
 		res.json({ message: "Deleted" });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.get("/web/products/:id/images", async (req, res, next) => {
+	try {
+		const productId = Number(req.params.id);
+		const [prodRes, imagesRes] = await Promise.all([
+			query("select id, image, main_image from products where id = $1 and deleted_at is null", [productId]),
+			query("select id, image_path, is_main, position, image_path as image from product_images where product_id = $1 order by is_main desc, position asc, id asc", [productId]),
+		]);
+		if (!prodRes.rows[0]) throw notFound();
+		let images = imagesRes.rows;
+		const fallback = prodRes.rows[0].main_image || prodRes.rows[0].image;
+		if (!images.length && fallback) {
+			images = [{ id: "main", image_path: fallback, image: fallback, is_main: true, position: 0 }];
+		}
+		res.json(images);
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.post("/web/products/:id/images", ...adminOnly, upload.array("images", 20), async (req, res, next) => {
+	try {
+		const productId = Number(req.params.id);
+		const gallery = (req.files || []).map(productAssetPath).filter(Boolean);
+		if (gallery.length) {
+			await addProductImages(productId, null, gallery);
+		}
+		const updated = await query(
+			"select id, image_path, is_main, position, image_path as image from product_images where product_id = $1 order by is_main desc, position asc, id asc",
+			[productId],
+		);
+		res.json({ message: "Images uploaded", images: updated.rows });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.put("/web/products/:id/images/:imageId/set-main", ...adminOnly, async (req, res, next) => {
+	try {
+		const productId = Number(req.params.id);
+		const imageId = req.params.imageId;
+		if (imageId === "main") {
+			return res.json({ message: "Already main" });
+		}
+		const found = await query("select * from product_images where id = $1 and product_id = $2", [imageId, productId]);
+		if (!found.rows[0]) throw notFound();
+
+		await query("update product_images set is_main = false where product_id = $1", [productId]);
+		await query("update product_images set is_main = true where id = $1", [imageId]);
+		await query("update products set image = $1, main_image = $1, updated_at = now() where id = $2", [found.rows[0].image_path, productId]);
+
+		const updated = await query(
+			"select id, image_path, is_main, position, image_path as image from product_images where product_id = $1 order by is_main desc, position asc, id asc",
+			[productId],
+		);
+		res.json({ message: "Main image updated", images: updated.rows });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.delete("/web/products/:id/images/:imageId", ...adminOnly, async (req, res, next) => {
+	try {
+		const productId = Number(req.params.id);
+		const imageId = req.params.imageId;
+		if (imageId === "main" || imageId === "legacy-main") {
+			await query("update products set image = null, main_image = null, updated_at = now() where id = $1", [productId]);
+			return res.json({ message: "Image removed", images: [] });
+		}
+		const found = await query("select * from product_images where id = $1 and product_id = $2", [imageId, productId]);
+		if (!found.rows[0]) throw notFound();
+
+		const { image_path, is_main } = found.rows[0];
+		await query("delete from product_images where id = $1", [imageId]);
+
+		try {
+			const cleanRel = image_path.replace(/^\/?uploads\//i, "");
+			const filePath = path.join(uploadsRoot, cleanRel);
+			await fs.unlink(filePath).catch(() => {});
+		} catch {}
+
+		const remaining = await query(
+			"select id, image_path, is_main, position, image_path as image from product_images where product_id = $1 order by is_main desc, position asc, id asc",
+			[productId],
+		);
+		if (is_main || remaining.rows.length === 0) {
+			const newMain = remaining.rows[0]?.image_path || null;
+			if (newMain) {
+				await query("update product_images set is_main = true where id = $1", [remaining.rows[0].id]);
+				await query("update products set image = $1, main_image = $1, updated_at = now() where id = $2", [newMain, productId]);
+				remaining.rows[0].is_main = true;
+			} else {
+				await query("update products set image = null, main_image = null, updated_at = now() where id = $1", [productId]);
+			}
+		}
+		res.json({ message: "Image removed", images: remaining.rows });
 	} catch (error) {
 		next(error);
 	}
