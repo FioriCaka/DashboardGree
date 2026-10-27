@@ -387,12 +387,13 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 
 router.get("/web/products/:id", async (req, res, next) => {
 	try {
+		const productId = Number(req.params.id) || req.params.id;
 		const [base, images, prices, options, features] = await Promise.all([
-			query(`${productSelect} where p.id = $1 and p.deleted_at is null`, [req.params.id]),
-			query("select id, image_path, is_main, position, image_path as image from product_images where product_id = $1 order by is_main desc, position asc, id asc", [req.params.id]),
-			query("select pp.usergroup_id, pp.lower_limit, pp.price, ug.name as usergroup_name from product_prices pp left join user_groups ug on ug.id = pp.usergroup_id where pp.product_id = $1 order by pp.lower_limit asc", [req.params.id]),
-			query("select po.id, o.name as option_name, po.variant_id, ov.name as variant_name from product_options po join options o on o.id = po.option_id join option_variants ov on ov.id = po.variant_id where po.product_id = $1 order by o.name, ov.name", [req.params.id]),
-			query("select pfv.id, f.name as feature_name, pfv.variant_id, fv.name as variant_name from product_feature_values pfv join features f on f.id = pfv.feature_id join feature_variants fv on fv.id = pfv.variant_id where pfv.product_id = $1 order by f.name, fv.name", [req.params.id]),
+			query(`${productSelect} where p.id = $1 and p.deleted_at is null`, [productId]),
+			query("select id, image_path, is_main, position, image_path as image from product_images where product_id = $1 order by is_main desc, position asc, id asc", [productId]),
+			query("select pp.usergroup_id, pp.lower_limit, pp.price, ug.name as usergroup_name from product_prices pp left join user_groups ug on ug.id = pp.usergroup_id where pp.product_id = $1 order by pp.lower_limit asc", [productId]),
+			query("select po.id, o.name as option_name, po.variant_id, ov.name as variant_name from product_options po join options o on o.id = po.option_id join option_variants ov on ov.id = po.variant_id where po.product_id = $1 order by o.name, ov.name", [productId]),
+			query("select pfv.id, f.name as feature_name, pfv.variant_id, fv.name as variant_name from product_feature_values pfv join features f on f.id = pfv.feature_id join feature_variants fv on fv.id = pfv.variant_id where pfv.product_id = $1 order by f.name, fv.name", [productId]),
 		]);
 		if (!base.rows[0]) throw notFound();
 		const productImages = images.rows.length
