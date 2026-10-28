@@ -573,12 +573,14 @@ alter table products add column if not exists tracking varchar(40);
 alter table products add column if not exists exceptions_type varchar(40);
 alter table products add column if not exists is_featured boolean not null default false;
 alter table products add column if not exists sort_order integer not null default 0;
+alter table products add column if not exists is_visible boolean not null default true;
 
 alter table main_categories add column if not exists sort_order integer not null default 0;
 alter table main_categories add column if not exists is_special boolean not null default false;
 alter table main_categories add column if not exists tree_type varchar(50) not null default 'residential_gas';
 alter table subcategories add column if not exists short_description text;
 alter table subcategories add column if not exists short_description_2 text;
+alter table subcategories add column if not exists image varchar(500);
 alter table subcategories add column if not exists is_special boolean not null default false;
 alter table subcategories add column if not exists is_header boolean not null default false;
 alter table subcategories add column if not exists sort_order integer not null default 0;
@@ -831,10 +833,15 @@ create table if not exists main_categories (
   name varchar(190) not null unique,
   sort_order integer not null default 0,
   is_special boolean not null default false,
+  is_header boolean not null default false,
+  is_horizontal boolean not null default false,
   tree_type varchar(50) not null default 'residential_gas',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table main_categories add column if not exists is_header boolean not null default false;
+alter table main_categories add column if not exists is_horizontal boolean not null default false;
 
 create table if not exists subcategories (
   id bigserial primary key,

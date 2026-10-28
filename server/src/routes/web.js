@@ -329,7 +329,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 	try {
 		const includeEmpty = String(req.query.includeEmpty || "") === "1";
 		const [mainRows, subRows, countsRows] = await Promise.all([
-			query("select id, name, sort_order, is_special, tree_type from main_categories order by sort_order asc, id asc"),
+			query("select id, name, sort_order, is_special, is_header, is_horizontal, tree_type from main_categories order by sort_order asc, id asc"),
 			query("select id, name, main_category_id, tagline, short_description, short_description_2, is_special, is_header, sort_order, image from subcategories order by sort_order asc, id asc"),
 			query(
 				`select main_category_id, subcategory_id, count(*)::int as total
@@ -351,6 +351,8 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 				name: row.name,
 				sort_order: Number(row.sort_order || 0),
 				is_special: Boolean(row.is_special),
+				is_header: Boolean(row.is_header),
+				is_horizontal: Boolean(row.is_horizontal),
 				tree_type: row.tree_type || "residential_gas",
 				parent_id: 0,
 				type: "main",
@@ -377,9 +379,9 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 				product_count: subCounts.get(Number(row.id)) || 0,
 				children: [],
 			};
-			if (includeEmpty || child.product_count > 0) nodes.get(mainId).children.push(child);
+			if (includeEmpty || child.product_count > 0 || child.is_header) nodes.get(mainId).children.push(child);
 		}
-		res.json([...nodes.values()].filter((node) => includeEmpty || node.product_count > 0 || node.children.length));
+		res.json([...nodes.values()].filter((node) => includeEmpty || node.product_count > 0 || node.children.length || node.is_header));
 	} catch (error) {
 		next(error);
 	}
@@ -422,8 +424,8 @@ router.post("/web/products/categories", ...adminOnly, upload.single("image"), as
 		}
 		const treeType = String(req.body?.tree_type || "residential_gas");
 		const result = await query(
-			"insert into main_categories (name, sort_order, is_special, tree_type) values ($1, $2, $3, $4) returning *",
-			[name, Number(req.body.sort_order || 0), bool(req.body.is_special), treeType],
+			"insert into main_categories (name, sort_order, is_special, is_header, is_horizontal, tree_type) values ($1, $2, $3, $4, $5, $6) returning *",
+			[name, Number(req.body.sort_order || 0), bool(req.body.is_special), bool(req.body.is_header), bool(req.body.is_horizontal), treeType],
 		);
 		res.json({ message: "Category saved", category: { ...result.rows[0], parent_id: 0, type: "main" } });
 	} catch (error) {
@@ -462,8 +464,8 @@ router.put("/web/products/categories/:id", ...adminOnly, upload.single("image"),
 			return res.json({ message: "Category updated", category: { id, name, parent_id: mainCategoryId, main_category_id: mainCategoryId, short_description_2: req.body.short_description_2 || null, image: newImage, type: "sub" } });
 		}
 		const treeType = String(req.body?.tree_type || "residential_gas");
-		await query("update main_categories set name = $1, sort_order = $2, is_special = $3, tree_type = $4, updated_at = now() where id = $5", [name, Number(req.body.sort_order || 0), bool(req.body.is_special), treeType, id]);
-		res.json({ message: "Category updated", category: { id, name, parent_id: 0, tree_type: treeType, type: "main" } });
+		await query("update main_categories set name = $1, sort_order = $2, is_special = $3, is_header = $4, is_horizontal = $5, tree_type = $6, updated_at = now() where id = $7", [name, Number(req.body.sort_order || 0), bool(req.body.is_special), bool(req.body.is_header), bool(req.body.is_horizontal), treeType, id]);
+		res.json({ message: "Category updated", category: { id, name, parent_id: 0, is_header: bool(req.body.is_header), is_horizontal: bool(req.body.is_horizontal), tree_type: treeType, type: "main" } });
 	} catch (error) {
 		next(error);
 	}
