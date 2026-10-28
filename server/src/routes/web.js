@@ -325,8 +325,41 @@ router.get("/web/products/categories", async (_req, res, next) => {
 	}
 });
 
+let categorySchemaReadyPromise = null;
+function ensureWebCategorySchema() {
+	if (!categorySchemaReadyPromise) {
+		const alters = [
+			"alter table main_categories add column if not exists sort_order integer not null default 0",
+			"alter table main_categories add column if not exists is_special boolean not null default false",
+			"alter table main_categories add column if not exists is_header boolean not null default false",
+			"alter table main_categories add column if not exists is_horizontal boolean not null default false",
+			"alter table main_categories add column if not exists tree_type varchar(50) not null default 'residential_gas'",
+			"alter table subcategories add column if not exists tagline varchar(255)",
+			"alter table subcategories add column if not exists short_description text",
+			"alter table subcategories add column if not exists short_description_2 text",
+			"alter table subcategories add column if not exists image varchar(500)",
+			"alter table subcategories add column if not exists is_special boolean not null default false",
+			"alter table subcategories add column if not exists is_header boolean not null default false",
+			"alter table subcategories add column if not exists sort_order integer not null default 0",
+			"alter table products add column if not exists is_visible boolean not null default true",
+		];
+		categorySchemaReadyPromise = (async () => {
+			for (const sql of alters) {
+				try {
+					await query(sql);
+				} catch (err) {
+					console.warn("[web] Schema alter warning:", err.message);
+				}
+			}
+		})();
+	}
+	return categorySchemaReadyPromise;
+}
+ensureWebCategorySchema();
+
 router.get("/web/products/category-tree", async (req, res, next) => {
 	try {
+		await ensureWebCategorySchema();
 		const includeEmpty = String(req.query.includeEmpty || "") === "1";
 		const [mainRows, subRows, countsRows] = await Promise.all([
 			query("select id, name, sort_order, is_special, is_header, is_horizontal, tree_type from main_categories order by sort_order asc, id asc"),
@@ -409,6 +442,7 @@ router.get("/web/products/:id", async (req, res, next) => {
 
 router.post("/web/products/categories", ...adminOnly, upload.single("image"), async (req, res, next) => {
 	try {
+		await ensureWebCategorySchema();
 		const name = String(req.body?.name || "").trim();
 		const parentId = numberOrNull(req.body?.parent_id);
 		if (!name) throw new HttpError(400, "Category name is required");
@@ -435,6 +469,7 @@ router.post("/web/products/categories", ...adminOnly, upload.single("image"), as
 
 router.put("/web/products/categories/:id", ...adminOnly, upload.single("image"), async (req, res, next) => {
 	try {
+		await ensureWebCategorySchema();
 		const id = Number(req.params.id);
 		const name = String(req.body?.name || "").trim();
 		const isSub = String(req.body?.type || "").toLowerCase() === "sub";

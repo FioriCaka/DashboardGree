@@ -25,6 +25,7 @@ import webRoutes from "./routes/web.js";
 import plannerRoutes from "./routes/planner.js";
 import { startScheduledNotificationDispatcher } from "./push.js";
 import { errorHandler } from "./http/errors.js";
+import { runMigrations } from "./db/migrate.js";
 
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
@@ -125,6 +126,7 @@ app.use(errorHandler);
 
 const server = app.listen(config.port, config.host, () => {
 	console.log(`Gree API listening on http://${config.host}:${config.port}`);
+	runMigrations().catch((err) => console.warn("Startup migration warning:", err.message));
 });
 
 startScheduledNotificationDispatcher();
