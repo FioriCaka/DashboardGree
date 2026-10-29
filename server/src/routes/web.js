@@ -333,6 +333,7 @@ function ensureWebCategorySchema() {
 			"alter table main_categories add column if not exists is_special boolean not null default false",
 			"alter table main_categories add column if not exists is_header boolean not null default false",
 			"alter table main_categories add column if not exists is_horizontal boolean not null default false",
+			"alter table main_categories add column if not exists is_stacked boolean not null default false",
 			"alter table main_categories add column if not exists tree_type varchar(50) not null default 'residential_gas'",
 			"alter table subcategories add column if not exists tagline varchar(255)",
 			"alter table subcategories add column if not exists short_description text",
@@ -362,7 +363,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 		await ensureWebCategorySchema();
 		const includeEmpty = String(req.query.includeEmpty || "") === "1";
 		const [mainRows, subRows, countsRows] = await Promise.all([
-			query("select id, name, sort_order, is_special, is_header, is_horizontal, tree_type from main_categories order by sort_order asc, id asc"),
+			query("select id, name, sort_order, is_special, is_header, is_horizontal, is_stacked, tree_type from main_categories order by sort_order asc, id asc"),
 			query("select id, name, main_category_id, tagline, short_description, short_description_2, is_special, is_header, sort_order, image from subcategories order by sort_order asc, id asc"),
 			query(
 				`select main_category_id, subcategory_id, count(*)::int as total
@@ -386,6 +387,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 				is_special: Boolean(row.is_special),
 				is_header: Boolean(row.is_header),
 				is_horizontal: Boolean(row.is_horizontal),
+				is_stacked: Boolean(row.is_stacked),
 				tree_type: row.tree_type || "residential_gas",
 				parent_id: 0,
 				type: "main",
@@ -458,8 +460,8 @@ router.post("/web/products/categories", ...adminOnly, upload.single("image"), as
 		}
 		const treeType = String(req.body?.tree_type || "residential_gas");
 		const result = await query(
-			"insert into main_categories (name, sort_order, is_special, is_header, is_horizontal, tree_type) values ($1, $2, $3, $4, $5, $6) returning *",
-			[name, Number(req.body.sort_order || 0), bool(req.body.is_special), bool(req.body.is_header), bool(req.body.is_horizontal), treeType],
+			"insert into main_categories (name, sort_order, is_special, is_header, is_horizontal, is_stacked, tree_type) values ($1, $2, $3, $4, $5, $6, $7) returning *",
+			[name, Number(req.body.sort_order || 0), bool(req.body.is_special), bool(req.body.is_header), bool(req.body.is_horizontal), bool(req.body.is_stacked), treeType],
 		);
 		res.json({ message: "Category saved", category: { ...result.rows[0], parent_id: 0, type: "main" } });
 	} catch (error) {
@@ -499,8 +501,8 @@ router.put("/web/products/categories/:id", ...adminOnly, upload.single("image"),
 			return res.json({ message: "Category updated", category: { id, name, parent_id: mainCategoryId, main_category_id: mainCategoryId, short_description_2: req.body.short_description_2 || null, image: newImage, type: "sub" } });
 		}
 		const treeType = String(req.body?.tree_type || "residential_gas");
-		await query("update main_categories set name = $1, sort_order = $2, is_special = $3, is_header = $4, is_horizontal = $5, tree_type = $6, updated_at = now() where id = $7", [name, Number(req.body.sort_order || 0), bool(req.body.is_special), bool(req.body.is_header), bool(req.body.is_horizontal), treeType, id]);
-		res.json({ message: "Category updated", category: { id, name, parent_id: 0, is_header: bool(req.body.is_header), is_horizontal: bool(req.body.is_horizontal), tree_type: treeType, type: "main" } });
+		await query("update main_categories set name = $1, sort_order = $2, is_special = $3, is_header = $4, is_horizontal = $5, is_stacked = $6, tree_type = $7, updated_at = now() where id = $8", [name, Number(req.body.sort_order || 0), bool(req.body.is_special), bool(req.body.is_header), bool(req.body.is_horizontal), bool(req.body.is_stacked), treeType, id]);
+		res.json({ message: "Category updated", category: { id, name, parent_id: 0, is_header: bool(req.body.is_header), is_horizontal: bool(req.body.is_horizontal), is_stacked: bool(req.body.is_stacked), tree_type: treeType, type: "main" } });
 	} catch (error) {
 		next(error);
 	}

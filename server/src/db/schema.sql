@@ -835,6 +835,7 @@ create table if not exists main_categories (
   is_special boolean not null default false,
   is_header boolean not null default false,
   is_horizontal boolean not null default false,
+  is_stacked boolean not null default false,
   tree_type varchar(50) not null default 'residential_gas',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -842,6 +843,7 @@ create table if not exists main_categories (
 
 alter table main_categories add column if not exists is_header boolean not null default false;
 alter table main_categories add column if not exists is_horizontal boolean not null default false;
+alter table main_categories add column if not exists is_stacked boolean not null default false;
 
 create table if not exists subcategories (
   id bigserial primary key,
