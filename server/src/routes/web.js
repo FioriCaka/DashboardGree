@@ -183,6 +183,7 @@ function mapProduct(row) {
 		image: row.display_image || row.image || row.main_image || null,
 		imported: Boolean(row.product_code),
 		is_featured: Boolean(row.is_featured),
+		is_visible: row.is_visible !== false,
 	};
 }
 
@@ -286,7 +287,11 @@ router.post("/auth/create-admin", authRequired, requireRoles("admin"), async (re
 router.get("/web/products", async (req, res, next) => {
 	try {
 		const params = [];
-		const where = ["p.deleted_at is null", "p.is_visible = true"];
+		const includeHidden = String(req.query.includeHidden || "") === "1";
+		const where = ["p.deleted_at is null"];
+		if (!includeHidden) {
+			where.push("p.is_visible = true");
+		}
 		if (req.query.category) {
 			params.push(String(req.query.category));
 			where.push("coalesce(sc.name, mc.name, p.category) = $" + params.length);
@@ -536,8 +541,8 @@ router.post("/web/products", ...adminOnly, upload.fields([{ name: "image", maxCo
 		const result = await query(
 			`insert into products
 			 (product_code, sku, name, category, description, short_description, specs, features, price_range,
-			  is_featured, image, main_image, price, list_price, old_price, amount, tracking, exceptions_type)
-			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $13, $14, $15, $16)
+			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, tracking, exceptions_type)
+			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $14, $15, $16, $17)
 			 returning id`,
 			[
 				req.body.product_code || null,
@@ -550,6 +555,7 @@ router.post("/web/products", ...adminOnly, upload.fields([{ name: "image", maxCo
 				req.body.features || null,
 				formatPriceRange(price, listPrice, req.body.price_range),
 				bool(req.body.is_featured),
+				req.body.is_visible !== undefined ? bool(req.body.is_visible) : true,
 				primaryImage,
 				price,
 				listPrice,
@@ -583,6 +589,7 @@ router.put("/web/products/:id", ...adminOnly, upload.fields([{ name: "image", ma
 			features: req.body.features || null,
 			price_range: formatPriceRange(price, listPrice, req.body.price_range),
 			is_featured: bool(req.body.is_featured),
+			is_visible: req.body.is_visible !== undefined ? bool(req.body.is_visible) : undefined,
 			price,
 			list_price: listPrice,
 			old_price: listPrice,
@@ -1332,6 +1339,22 @@ router.delete("/web/catalogs/:id", ...adminOnly, async (req, res, next) => {
 	try {
 		await query("delete from catalogs where id = $1", [req.params.id]);
 		res.json({ message: "Catalog deleted" });
+	} catch (error) {
+		next(error);
+	}
+});
+
+router.put("/web/products/:id/sections", ...adminOnly, async (req, res, next) => {
+	try {
+		await ensureWebCategorySchema();
+		if (req.body.is_visible === undefined) {
+			return res.json({ message: "No changes" });
+		}
+		await query(
+			"update products set is_visible = $1, updated_at = now() where id = $2 and deleted_at is null",
+			[bool(req.body.is_visible), req.params.id],
+		);
+		res.json({ message: "Product visibility updated" });
 	} catch (error) {
 		next(error);
 	}
