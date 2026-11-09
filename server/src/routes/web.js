@@ -27,11 +27,16 @@ const upload = multer({
 	}),
 	limits: { fileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE_MB ?? 300) * 1024 * 1024 },
 	fileFilter: (_req, file, cb) => {
-		const isImage = /^image\//i.test(file.mimetype);
+		const isImage = /^image\//i.test(file.mimetype) ||
+			/\.(png|jpe?g|webp|svg|gif|avif|bmp|ico)$/i.test(file.originalname);
 		const isVideo = /^video\//i.test(file.mimetype) ||
 			/\.(mp4|mov|webm|mkv|avi|m4v|3gp|wmv)$/i.test(file.originalname);
-		const ok = isImage || isVideo;
-		cb(ok ? null : new Error("Only images and videos are allowed"), ok);
+		const isDoc =
+			/^application\/(pdf|msword|vnd\.openxmlformats|vnd\.ms-|zip|x-rar|octet-stream)/i.test(file.mimetype) ||
+			/^text\//i.test(file.mimetype) ||
+			/\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip|rar)$/i.test(file.originalname);
+		const ok = isImage || isVideo || isDoc;
+		cb(ok ? null : new Error("Only images, videos, and documents are allowed"), ok);
 	},
 });
 
@@ -348,6 +353,9 @@ function ensureWebCategorySchema() {
 			"alter table subcategories add column if not exists is_header boolean not null default false",
 			"alter table subcategories add column if not exists sort_order integer not null default 0",
 			"alter table products add column if not exists is_visible boolean not null default true",
+			"alter table products add column if not exists strong_points text",
+			"alter table products add column if not exists documents text",
+			"alter table products add column if not exists certifications text",
 		];
 		categorySchemaReadyPromise = (async () => {
 			for (const sql of alters) {
@@ -534,15 +542,17 @@ router.delete("/web/products/categories/:id", ...adminOnly, async (req, res, nex
 
 router.post("/web/products", ...adminOnly, upload.fields([{ name: "image", maxCount: 1 }, { name: "images", maxCount: 20 }]), async (req, res, next) => {
 	try {
+		await ensureWebCategorySchema();
 		const primaryImage = productAssetPath(req.files?.image?.[0]) || productAssetPath(req.files?.images?.[0]);
 		const gallery = (req.files?.images || []).map(productAssetPath).filter(Boolean);
 		const price = Number(req.body.price || 0);
 		const listPrice = Number(req.body.list_price || 0);
 		const result = await query(
 			`insert into products
-			 (product_code, sku, name, category, description, short_description, specs, features, price_range,
+			 (product_code, sku, name, category, description, short_description, specs, features,
+			  strong_points, documents, certifications, price_range,
 			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, tracking, exceptions_type)
-			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $14, $15, $16, $17)
+			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, $16, $17, $17, $18, $19, $20)
 			 returning id`,
 			[
 				req.body.product_code || null,
@@ -553,6 +563,9 @@ router.post("/web/products", ...adminOnly, upload.fields([{ name: "image", maxCo
 				req.body.short_description || req.body.description || null,
 				req.body.specs || null,
 				req.body.features || null,
+				req.body.strong_points || null,
+				req.body.documents || null,
+				req.body.certifications || null,
 				formatPriceRange(price, listPrice, req.body.price_range),
 				bool(req.body.is_featured),
 				req.body.is_visible !== undefined ? bool(req.body.is_visible) : true,
@@ -574,6 +587,7 @@ router.post("/web/products", ...adminOnly, upload.fields([{ name: "image", maxCo
 
 router.put("/web/products/:id", ...adminOnly, upload.fields([{ name: "image", maxCount: 1 }, { name: "images", maxCount: 20 }]), async (req, res, next) => {
 	try {
+		await ensureWebCategorySchema();
 		const primaryImage = productAssetPath(req.files?.image?.[0]) || productAssetPath(req.files?.images?.[0]);
 		const gallery = (req.files?.images || []).map(productAssetPath).filter(Boolean);
 		const price = Number(req.body.price || 0);
@@ -585,8 +599,11 @@ router.put("/web/products/:id", ...adminOnly, upload.fields([{ name: "image", ma
 			category: req.body.category || null,
 			description: req.body.description || null,
 			short_description: req.body.short_description || req.body.description || null,
-			specs: req.body.specs || null,
-			features: req.body.features || null,
+			specs: req.body.specs !== undefined ? (req.body.specs || null) : undefined,
+			features: req.body.features !== undefined ? (req.body.features || null) : undefined,
+			strong_points: req.body.strong_points !== undefined ? (req.body.strong_points || null) : undefined,
+			documents: req.body.documents !== undefined ? (req.body.documents || null) : undefined,
+			certifications: req.body.certifications !== undefined ? (req.body.certifications || null) : undefined,
 			price_range: formatPriceRange(price, listPrice, req.body.price_range),
 			is_featured: bool(req.body.is_featured),
 			is_visible: req.body.is_visible !== undefined ? bool(req.body.is_visible) : undefined,
@@ -1347,28 +1364,67 @@ router.delete("/web/catalogs/:id", ...adminOnly, async (req, res, next) => {
 router.put("/web/products/:id/sections", ...adminOnly, async (req, res, next) => {
 	try {
 		await ensureWebCategorySchema();
-		if (req.body.is_visible === undefined) {
+		const allowedKeys = ["strong_points", "documents", "certifications", "features", "specs"];
+		const updates = [];
+		const values = [];
+		for (const key of allowedKeys) {
+			if (req.body[key] !== undefined) {
+				values.push(
+					typeof req.body[key] === "string"
+						? req.body[key]
+						: req.body[key] === null
+							? null
+							: JSON.stringify(req.body[key]),
+				);
+				updates.push(`${key} = $${values.length}`);
+			}
+		}
+		if (req.body.is_visible !== undefined) {
+			values.push(bool(req.body.is_visible));
+			updates.push(`is_visible = $${values.length}`);
+		}
+		if (!updates.length) {
 			return res.json({ message: "No changes" });
 		}
+		values.push(req.params.id);
 		await query(
-			"update products set is_visible = $1, updated_at = now() where id = $2 and deleted_at is null",
-			[bool(req.body.is_visible), req.params.id],
+			`update products set ${updates.join(", ")}, updated_at = now() where id = $${values.length} and deleted_at is null`,
+			values,
 		);
-		res.json({ message: "Product visibility updated" });
+		res.json({ message: "Product sections updated" });
 	} catch (error) {
 		next(error);
 	}
 });
 
-router.post("/upload", upload.single("file"), (req, res) => {
+router.post("/upload", ...adminOnly, upload.single("file"), (req, res) => {
 	try {
 		if (!req.file) {
 			return res.status(400).json({ error: "No file uploaded" });
 		}
 		const url = `/uploads/${req.file.filename}`;
-		res.json({ url });
+		res.json({
+			url,
+			filename: req.file.filename,
+			originalName: req.file.originalname,
+		});
 	} catch (err) {
 		res.status(500).json({ error: err.message });
+	}
+});
+
+router.get(["/download", "/web/download"], async (req, res, next) => {
+	try {
+		const rawFile = String(req.query.file || "").trim();
+		if (!rawFile) throw new HttpError(400, "File parameter required");
+		const cleanRel = rawFile.replace(/^https?:\/\/[^/]+/i, "").replace(/^\/?uploads\//i, "");
+		const safeRelative = path.normalize(cleanRel).replace(/^(\.\.[\/\\])+/, "");
+		const filePath = path.join(uploadsRoot, safeRelative);
+		await fs.access(filePath);
+		const customName = String(req.query.name || "").trim() || path.basename(filePath);
+		res.download(filePath, customName);
+	} catch (error) {
+		next(error);
 	}
 });
 
