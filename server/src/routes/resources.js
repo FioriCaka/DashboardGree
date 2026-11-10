@@ -284,7 +284,7 @@ products.show = async (req, res, next) => {
 			query(
 				`select id, image_path, is_main, position, image_path as image
          from product_images where product_id = $1
-         order by is_main desc, position asc, id asc`,
+         order by position asc, id asc`,
 				[id],
 			),
 			query(
@@ -1316,6 +1316,98 @@ router.patch(
 			]);
 
 			res.json({ data: { ...found.rows[0], is_main: true } });
+		} catch (error) {
+			next(error);
+		}
+	},
+);
+
+router.patch(
+	"/products/:id/images/reorder",
+	staff,
+	async (req, res, next) => {
+		try {
+			const productId = req.params.id;
+			const { order } = req.body;
+			if (!Array.isArray(order) || order.length === 0) {
+				return res.status(400).json({ message: "Invalid order array" });
+			}
+
+			for (let i = 0; i < order.length; i++) {
+				const item = order[i];
+				const isMain = i === 0;
+				if (typeof item === "number" || (!isNaN(Number(item)) && String(item).trim() !== "")) {
+					await query(
+						"update product_images set position = $1, is_main = $2, updated_at = now() where id = $3 and product_id = $4",
+						[i, isMain, item, productId],
+					);
+				} else {
+					await query(
+						"update product_images set position = $1, is_main = $2, updated_at = now() where image_path = $3 and product_id = $4",
+						[i, isMain, String(item), productId],
+					);
+				}
+			}
+
+			const updated = await query(
+				"select id, image_path, is_main, position, image_path as image from product_images where product_id = $1 order by position asc, id asc",
+				[productId],
+			);
+
+			if (updated.rows[0]) {
+				await query(
+					"update products set image = $1, main_image = $1, updated_at = now() where id = $2",
+					[updated.rows[0].image_path, productId],
+				);
+			}
+
+			res.json({ message: "Images reordered", data: updated.rows });
+		} catch (error) {
+			next(error);
+		}
+	},
+);
+
+router.put(
+	"/products/:id/images/reorder",
+	staff,
+	async (req, res, next) => {
+		try {
+			const productId = req.params.id;
+			const { order } = req.body;
+			if (!Array.isArray(order) || order.length === 0) {
+				return res.status(400).json({ message: "Invalid order array" });
+			}
+
+			for (let i = 0; i < order.length; i++) {
+				const item = order[i];
+				const isMain = i === 0;
+				if (typeof item === "number" || (!isNaN(Number(item)) && String(item).trim() !== "")) {
+					await query(
+						"update product_images set position = $1, is_main = $2, updated_at = now() where id = $3 and product_id = $4",
+						[i, isMain, item, productId],
+					);
+				} else {
+					await query(
+						"update product_images set position = $1, is_main = $2, updated_at = now() where image_path = $3 and product_id = $4",
+						[i, isMain, String(item), productId],
+					);
+				}
+			}
+
+			const updated = await query(
+				"select id, image_path, is_main, position, image_path as image from product_images where product_id = $1 order by position asc, id asc",
+				[productId],
+			);
+
+			if (updated.rows[0]) {
+				await query(
+					"update products set image = $1, main_image = $1, updated_at = now() where id = $2",
+					[updated.rows[0].image_path, productId],
+				);
+			}
+
+			res.json({ message: "Images reordered", data: updated.rows });
 		} catch (error) {
 			next(error);
 		}

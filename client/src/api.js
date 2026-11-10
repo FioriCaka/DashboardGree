@@ -89,6 +89,11 @@ export const productImageApi = {
     api(`/products/${productId}/images/${imageId}`, { method: "DELETE" }),
   setMain: (productId, imageId) =>
     api(`/products/${productId}/images/${imageId}/set-main`, { method: "PATCH" }),
+  reorder: (productId, order) =>
+    api(`/products/${productId}/images/reorder`, {
+      method: "PATCH",
+      body: JSON.stringify({ order }),
+    }),
 };
 
 export async function uploadWarrantyDoc(file) {

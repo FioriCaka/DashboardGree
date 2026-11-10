@@ -11,6 +11,7 @@
     "db:import-web-dump": "node src/tools/import-web-sql-dump.js",
     "db:seed": "node src/db/seed.js",
     "db:pull-products": "node src/tools/pull_live_products_to_local.js",
+    "db:update-specs": "node src/tools/import_specs.js",
     "api:smoke": "node src/tools/smoke-test.js"
   },
   "dependencies": {
