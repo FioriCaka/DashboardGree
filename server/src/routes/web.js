@@ -2070,6 +2070,27 @@ router.put(
         values.push(bool(req.body.is_visible));
         updates.push(`is_visible = $${values.length}`);
       }
+      if (req.body.product_code !== undefined && req.body.product_code !== null) {
+        const val = String(req.body.product_code).trim();
+        if (val) {
+          values.push(val);
+          updates.push(`product_code = $${values.length}`);
+        }
+      }
+      if (req.body.model !== undefined && req.body.model !== null) {
+        const val = String(req.body.model).trim();
+        if (val) {
+          values.push(val);
+          updates.push(`model = $${values.length}`);
+        }
+      }
+      if (req.body.price !== undefined && req.body.price !== null && req.body.price !== "") {
+        const numPrice = Number(String(req.body.price).replace(/,/g, ""));
+        if (Number.isFinite(numPrice) && numPrice > 0) {
+          values.push(numPrice);
+          updates.push(`price = $${values.length}`);
+        }
+      }
       if (!updates.length) {
         return res.json({ message: "No changes" });
       }
