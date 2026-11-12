@@ -2106,6 +2106,45 @@ router.put(
   },
 );
 
+router.put(
+  ["/web/subcategories/:id/features", "/subcategories/:id/features"],
+  ...adminOnly,
+  async (req, res, next) => {
+    try {
+      const subcategoryId = req.params.id;
+      const { features, productIds } = req.body;
+
+      if (!features) {
+        return res.status(400).json({ message: "Features array is required" });
+      }
+
+      const serialized =
+        typeof features === "string" ? features : JSON.stringify(features);
+
+      let result;
+      if (Array.isArray(productIds) && productIds.length > 0) {
+        const ids = productIds.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+        result = await query(
+          `update products set features = $1, updated_at = now() where id = any($2::int[]) and deleted_at is null`,
+          [serialized, ids],
+        );
+      } else {
+        result = await query(
+          `update products set features = $1, updated_at = now() where subcategory_id = $2 and deleted_at is null`,
+          [serialized, subcategoryId],
+        );
+      }
+
+      res.json({
+        message: "Funksionalitetet u ruajtën me sukses",
+        updatedCount: result.rowCount || 0,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 router.post("/upload", ...adminOnly, upload.single("file"), (req, res) => {
   try {
     if (!req.file) {
