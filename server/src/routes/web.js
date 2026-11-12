@@ -2118,26 +2118,170 @@ router.put(
         return res.status(400).json({ message: "Features array is required" });
       }
 
-      const serialized =
-        typeof features === "string" ? features : JSON.stringify(features);
+      let incomingList = [];
+      try {
+        incomingList = Array.isArray(features)
+          ? features
+          : typeof features === "string"
+            ? JSON.parse(features)
+            : [];
+      } catch {
+        incomingList = [];
+      }
 
-      let result;
+      // Find the target products
+      let prodsQuery;
+      let params;
       if (Array.isArray(productIds) && productIds.length > 0) {
         const ids = productIds.map(Number).filter((n) => Number.isFinite(n) && n > 0);
-        result = await query(
-          `update products set features = $1, updated_at = now() where id = any($2::int[]) and deleted_at is null`,
-          [serialized, ids],
-        );
+        prodsQuery = `select id, name, features from products where id = any($1::int[]) and deleted_at is null`;
+        params = [ids];
       } else {
-        result = await query(
-          `update products set features = $1, updated_at = now() where subcategory_id = $2 and deleted_at is null`,
-          [serialized, subcategoryId],
+        prodsQuery = `select id, name, features from products where subcategory_id = $1 and deleted_at is null`;
+        params = [subcategoryId];
+      }
+
+      const { rows: targetProducts } = await query(prodsQuery, params);
+
+      const cleanText = (str) =>
+        String(str || "")
+          .toLowerCase()
+          .replace(/[ëé]/g, "e")
+          .replace(/[ç]/g, "c")
+          .replace(/[^a-z0-9]/g, "");
+
+      // 1. Gather all existing icons across products in this subcategory line
+      const subcatIcons = [];
+      const subcatOrderedIcons = [];
+      for (const p of targetProducts) {
+        let fList = [];
+        try {
+          fList = typeof p.features === "string" ? JSON.parse(p.features) : (p.features || []);
+        } catch {
+          fList = [];
+        }
+        if (Array.isArray(fList)) {
+          fList.forEach((f, idx) => {
+            if (f && f.icon) {
+              subcatIcons.push({ key: f.key, label: f.label, icon: f.icon });
+              if (!subcatOrderedIcons[idx]) {
+                subcatOrderedIcons[idx] = f.icon;
+              }
+            }
+          });
+        }
+      }
+
+      const findMatchedIcon = (fnLabel, fnKey, idx, ownIcons, ownFeatures) => {
+        const normLabel = cleanText(fnLabel);
+        const normKey = cleanText(fnKey);
+
+        const iconPools = [
+          { icons: ownIcons, features: ownFeatures },
+          { icons: subcatIcons, features: subcatOrderedIcons },
+        ];
+
+        for (const pool of iconPools) {
+          if (!pool.icons || pool.icons.length === 0) continue;
+
+          // Direct key or label match
+          for (const ex of pool.icons) {
+            const exKey = cleanText(ex.key);
+            const exLabel = cleanText(ex.label);
+            if (
+              (exKey && (normKey === exKey || normLabel === exKey)) ||
+              (exLabel && normLabel === exLabel)
+            ) {
+              return ex.icon;
+            }
+          }
+
+          // Domain keyword rules
+          const rules = [
+            { keys: ["sleep", "gjume"], match: ["sleep"] },
+            { keys: ["qet", "silent"], match: ["silent", "qet"] },
+            { keys: ["wifi"], match: ["wifi"] },
+            { keys: ["feel"], match: ["feel", "ifeel"] },
+            { keys: ["turbo"], match: ["turbo"] },
+            { keys: ["plasma", "jon", "coldplasma"], match: ["plasma", "jon"] },
+            { keys: ["filter", "filter"], match: ["filter", "filt"] },
+            { keys: ["timer", "kohemates", "ore"], match: ["timer", "kohe"] },
+            { keys: ["fan", "ventilator", "shpejtesi", "xfan", "7"], match: ["fan", "fan7", "xfan"] },
+            { keys: ["3d", "qarkullim", "ajri3d"], match: ["3d", "3dair"] },
+            { keys: ["ngroh", "preheat", "8c"], match: ["preheat", "heat"] },
+            { keys: ["tension", "volt"], match: ["volt", "lowvolt"] },
+            { keys: ["shkrirje", "defrost"], match: ["defrost", "shkrirje"] },
+            { keys: ["pastrim", "vetpastrim", "clean"], match: ["clean", "pastrim"] },
+            { keys: ["bllokim", "femije", "lock"], match: ["lock", "bllokim"] },
+            { keys: ["rinisje", "restart"], match: ["restart", "rinisje"] },
+            { keys: ["diagnostik", "diagnose"], match: ["diagnose", "diagnostik"] },
+            { keys: ["uv", "uvc", "sterilizim"], match: ["uv", "uvc"] },
+          ];
+
+          for (const r of rules) {
+            if (r.keys.some((k) => normLabel.includes(k))) {
+              for (const ex of pool.icons) {
+                const exKey = cleanText(ex.key);
+                const exLabel = cleanText(ex.label);
+                if (r.match.some((m) => exKey.includes(m) || exLabel.includes(m))) {
+                  return ex.icon;
+                }
+              }
+            }
+          }
+
+          // Slot / Position fallback
+          if (idx >= 0) {
+            const slotIcon = Array.isArray(pool.features)
+              ? (pool.features[idx]?.icon || pool.features[idx])
+              : null;
+            if (slotIcon && typeof slotIcon === "string") {
+              return slotIcon;
+            }
+          }
+        }
+
+        return "";
+      };
+
+      for (const prod of targetProducts) {
+        let existingFeatures = [];
+        try {
+          existingFeatures = typeof prod.features === "string" ? JSON.parse(prod.features) : (prod.features || []);
+        } catch {
+          existingFeatures = [];
+        }
+        if (!Array.isArray(existingFeatures)) existingFeatures = [];
+
+        const ownIcons = existingFeatures
+          .filter((f) => f && f.icon)
+          .map((f) => ({ key: f.key, label: f.label, icon: f.icon }));
+
+        const merged = incomingList.map((fn, idx) => {
+          let preservedIcon = fn.icon || "";
+
+          // If no icon in incoming row, strictly preserve from existing icons
+          if (!preservedIcon) {
+            preservedIcon = findMatchedIcon(fn.label, fn.key, idx, ownIcons, existingFeatures);
+          }
+
+          return {
+            key: fn.key || `feat-${idx}`,
+            label: fn.label || "",
+            description: fn.description || "",
+            icon: preservedIcon,
+          };
+        });
+
+        await query(
+          `update products set features = $1, updated_at = now() where id = $2`,
+          [JSON.stringify(merged), prod.id],
         );
       }
 
       res.json({
-        message: "Funksionalitetet u ruajtën me sukses",
-        updatedCount: result.rowCount || 0,
+        message: `U përditësuan tekstet e funksioneve për ${targetProducts.length} produkte duke ruajtur ikonat ekzistuese.`,
+        updatedCount: targetProducts.length,
       });
     } catch (error) {
       next(error);
