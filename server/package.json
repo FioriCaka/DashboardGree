@@ -12,6 +12,7 @@
     "db:seed": "node src/db/seed.js",
     "db:pull-products": "node src/tools/pull_live_products_to_local.js",
     "db:update-specs": "node src/tools/import_specs.js",
+    "db:import-products-excel": "node src/tools/import_full_products_excel.js",
     "api:smoke": "node src/tools/smoke-test.js"
   },
   "dependencies": {

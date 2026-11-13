@@ -2539,6 +2539,251 @@ router.put(
   },
 );
 
+router.post(
+  ["/web/products/batch-import", "/products/batch-import"],
+  ...adminOnly,
+  async (req, res, next) => {
+    try {
+      await ensureWebCategorySchema();
+      const { items } = req.body;
+      if (!Array.isArray(items) || !items.length) {
+        return res
+          .status(400)
+          .json({ message: "Nuk u gjet asnjë rresht për importim." });
+      }
+
+      let updatedCount = 0;
+      let createdCount = 0;
+      const errors = [];
+
+      for (let i = 0; i < items.length; i++) {
+        const row = items[i];
+        try {
+          let rawSpecs = row.specs || row["Specifikimet Teknike"] || "";
+          if (rawSpecs) {
+            rawSpecs = String(rawSpecs)
+              .replace(/_x000D_\n/g, "\n")
+              .replace(/_x000D_/g, "\n")
+              .replace(/\r\n/g, "\n")
+              .trim();
+          }
+
+          const parseBool = (val, defaultVal = false) => {
+            if (val === undefined || val === null || val === "")
+              return defaultVal;
+            const str = String(val).trim().toUpperCase();
+            return (
+              str === "PO" || str === "TRUE" || str === "1" || str === "YES"
+            );
+          };
+
+          const parseNum = (val, defaultVal = 0) => {
+            if (val === undefined || val === null || val === "")
+              return defaultVal;
+            const num = Number(String(val).replace(/,/g, "").trim());
+            return Number.isFinite(num) ? num : defaultVal;
+          };
+
+          const id =
+            row.id || row.ID ? String(row.id || row.ID).trim() : null;
+          const code = String(
+            row.product_code ||
+              row["Kodi i Produktit"] ||
+              row.model ||
+              row["Modeli"] ||
+              "",
+          ).trim();
+          const name = String(row.name || row["Emri"] || "").trim();
+          const model = String(row.model || row["Modeli"] || "").trim();
+          const price = parseNum(row.price || row["Çmimi (Lek)"]);
+          const oldPrice = parseNum(
+            row.old_price || row["Çmimi i Vjetër (Lek)"],
+          );
+          const listPrice = parseNum(
+            row.list_price || row["Çmimi i Listës (Lek)"],
+          );
+          const warrantyYears = parseNum(
+            row.warranty_years || row["Garancia (Vite)"],
+            3,
+          );
+          const isVisible = parseBool(
+            row.is_visible ?? row["Shfaqet në Web"],
+            true,
+          );
+          const isFeatured = parseBool(
+            row.is_featured ?? row["I Veçuar (Featured)"],
+            false,
+          );
+          const wifiEnabled = parseBool(
+            row.wifi_enabled ?? row["Wi-Fi"],
+            false,
+          );
+          const heatingCooling = parseBool(
+            row.heating_cooling ?? row["Ngrohje / Ftohje"],
+            true,
+          );
+          const stock = parseNum(row.stock || row["Stoku"], 0);
+          const inStore = parseNum(row.in_store || row["Në Dyqan"], 0);
+          const energyClass =
+            String(row.energy_class || row["Klasa e Energjisë"] || "").trim() ||
+            null;
+          const seer =
+            String(row.seer || row["SEER"] || "").trim() || null;
+          const scop =
+            String(row.scop || row["SCOP"] || "").trim() || null;
+          const btu = String(row.btu || row["BTU"] || "").trim() || null;
+          const shortDesc =
+            String(
+              row.short_description || row["Përshkrimi i Shkurtër"] || "",
+            ).trim() || null;
+          const desc =
+            String(
+              row.description || row["Përshkrimi i Plotë"] || shortDesc || "",
+            ).trim() || null;
+
+          const catPath = String(
+            row.category_path_label ||
+              row["Shtegu i Plotë"] ||
+              (row.main_category_name && row.subcategory_name
+                ? `${row.main_category_name} -> ${row.subcategory_name}`
+                : row["Nënkategoria"] ||
+                  row.subcategory_name ||
+                  row.category ||
+                  ""),
+          ).trim();
+
+          // Match product by ID or Code
+          let targetProductId = null;
+          if (id) {
+            const check = await query(
+              "select id from products where id = $1 and deleted_at is null",
+              [id],
+            );
+            if (check.rows.length) targetProductId = check.rows[0].id;
+          }
+          if (!targetProductId && code) {
+            const check = await query(
+              "select id from products where (product_code = $1 or model = $1) and deleted_at is null limit 1",
+              [code],
+            );
+            if (check.rows.length) targetProductId = check.rows[0].id;
+          }
+
+          if (targetProductId) {
+            await query(
+              `update products
+               set name = coalesce(nullif($1, ''), name),
+                   model = coalesce(nullif($2, ''), model),
+                   product_code = coalesce(nullif($3, ''), product_code),
+                   price = $4,
+                   old_price = $5,
+                   list_price = $6,
+                   warranty_years = $7,
+                   is_visible = $8,
+                   is_featured = $9,
+                   wifi_enabled = $10,
+                   heating_cooling = $11,
+                   stock = $12,
+                   in_store = $13,
+                   energy_class = coalesce($14, energy_class),
+                   seer = coalesce($15, seer),
+                   scop = coalesce($16, scop),
+                   btu = coalesce($17, btu),
+                   short_description = coalesce($18, short_description),
+                   description = coalesce($19, description),
+                   specs = coalesce(nullif($20, ''), specs),
+                   updated_at = now()
+               where id = $21`,
+              [
+                name,
+                model,
+                code,
+                price,
+                oldPrice,
+                listPrice,
+                warrantyYears,
+                isVisible,
+                isFeatured,
+                wifiEnabled,
+                heatingCooling,
+                stock,
+                inStore,
+                energyClass,
+                seer,
+                scop,
+                btu,
+                shortDesc,
+                desc,
+                rawSpecs,
+                targetProductId,
+              ],
+            );
+
+            if (catPath) {
+              await assignCategoryPath(targetProductId, catPath);
+            }
+
+            await syncSubcategorySections(targetProductId, {});
+            updatedCount++;
+          } else {
+            if (!name) continue;
+            const insertRes = await query(
+              `insert into products
+               (product_code, model, sku, name, description, short_description, specs,
+                price, list_price, old_price, warranty_years, is_visible, is_featured,
+                wifi_enabled, heating_cooling, stock, in_store, energy_class, seer, scop, btu, tracking, exceptions_type)
+               values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'B', 'A')
+               returning id`,
+              [
+                code || null,
+                model || null,
+                code || `WEB-${Date.now()}-${i}`,
+                name,
+                desc,
+                shortDesc,
+                rawSpecs || null,
+                price,
+                listPrice,
+                oldPrice,
+                warrantyYears,
+                isVisible,
+                isFeatured,
+                wifiEnabled,
+                heatingCooling,
+                stock,
+                inStore,
+                energyClass,
+                seer,
+                scop,
+                btu,
+              ],
+            );
+            const newId = insertRes.rows[0].id;
+            if (catPath) {
+              await assignCategoryPath(newId, catPath);
+            }
+            await inheritSubcategorySections(newId);
+            createdCount++;
+          }
+        } catch (rowErr) {
+          errors.push({ row: i + 1, error: rowErr.message });
+        }
+      }
+
+      await syncExistingSubcategorySections();
+
+      res.json({
+        message: `Importi përfundoi me sukses: ${updatedCount} produkte u përditësuan, ${createdCount} produkte u shtuan.`,
+        updatedCount,
+        createdCount,
+        errors,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.post("/upload", ...adminOnly, upload.single("file"), (req, res) => {
   try {
     if (!req.file) {
