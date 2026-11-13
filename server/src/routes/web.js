@@ -186,6 +186,160 @@ async function assignCategoryPath(productId, rawCategory) {
   );
 }
 
+/**
+ * Propagate unified rich sections (features, certifications, documents, strong_points)
+ * to all other products in the same subcategory.
+ */
+async function syncSubcategorySections(productId, sections = {}) {
+  try {
+    const pRes = await query(
+      "select subcategory_id, category from products where id = $1",
+      [productId],
+    );
+    if (!pRes.rows.length) return;
+    const subcategoryId = pRes.rows[0].subcategory_id;
+    const category = pRes.rows[0].category;
+
+    const allowedKeys = [
+      "features",
+      "certifications",
+      "documents",
+      "strong_points",
+    ];
+    const sets = [];
+    const vals = [];
+
+    for (const key of allowedKeys) {
+      if (sections[key] !== undefined) {
+        vals.push(
+          typeof sections[key] === "string"
+            ? sections[key]
+            : sections[key] === null
+              ? null
+              : JSON.stringify(sections[key]),
+        );
+        sets.push(`${key} = $${vals.length}`);
+      }
+    }
+
+    if (!sets.length) return;
+
+    if (subcategoryId) {
+      vals.push(subcategoryId);
+      vals.push(productId);
+      await query(
+        `update products set ${sets.join(", ")}, updated_at = now()
+         where subcategory_id = $${vals.length - 1} and id != $${vals.length} and deleted_at is null`,
+        vals,
+      );
+    } else if (category) {
+      vals.push(category);
+      vals.push(productId);
+      await query(
+        `update products set ${sets.join(", ")}, updated_at = now()
+         where category = $${vals.length - 1} and id != $${vals.length} and deleted_at is null`,
+        vals,
+      );
+    }
+  } catch (err) {
+    console.error("Failed to sync subcategory sections:", err);
+  }
+}
+
+/**
+ * If a newly created or imported product has empty sections,
+ * inherit non-empty sections from a sibling product in the same subcategory.
+ */
+async function inheritSubcategorySections(productId) {
+  try {
+    const pRes = await query(
+      "select subcategory_id, category, features, certifications, documents, strong_points from products where id = $1",
+      [productId],
+    );
+    if (!pRes.rows.length) return;
+    const prod = pRes.rows[0];
+    const subcatId = prod.subcategory_id;
+    if (!subcatId) return;
+
+    const siblingRes = await query(
+      `select features, certifications, documents, strong_points
+       from products
+       where subcategory_id = $1 and id != $2 and deleted_at is null
+       order by id desc limit 10`,
+      [subcatId, productId],
+    );
+    if (!siblingRes.rows.length) return;
+
+    const updates = [];
+    const vals = [];
+    const keys = ["features", "certifications", "documents", "strong_points"];
+
+    for (const key of keys) {
+      const currentVal = prod[key];
+      const isEmpty =
+        !currentVal ||
+        currentVal === "[]" ||
+        String(currentVal).trim().length <= 4;
+      if (isEmpty) {
+        const siblingWithVal = siblingRes.rows.find(
+          (s) =>
+            s[key] && s[key] !== "[]" && String(s[key]).trim().length > 4,
+        );
+        if (siblingWithVal) {
+          vals.push(siblingWithVal[key]);
+          updates.push(`${key} = $${vals.length}`);
+        }
+      }
+    }
+
+    if (updates.length > 0) {
+      vals.push(productId);
+      await query(
+        `update products set ${updates.join(", ")}, updated_at = now() where id = $${vals.length}`,
+        vals,
+      );
+    }
+  } catch (err) {
+    console.error("Failed to inherit subcategory sections:", err);
+  }
+}
+
+/**
+ * Synchronize existing products across all subcategories in the database
+ * so all products in the same subcategory share unified sections.
+ */
+async function syncExistingSubcategorySections() {
+  try {
+    const allowedKeys = [
+      "features",
+      "certifications",
+      "documents",
+      "strong_points",
+    ];
+    for (const key of allowedKeys) {
+      await query(`
+        update products p
+        set ${key} = src.${key}, updated_at = now()
+        from (
+          select distinct on (subcategory_id) subcategory_id, ${key}
+          from products
+          where deleted_at is null
+            and subcategory_id is not null
+            and ${key} is not null
+            and length(trim(${key})) > 4
+            and trim(${key}) != '[]'
+          order by subcategory_id, id desc
+        ) src
+        where p.subcategory_id = src.subcategory_id
+          and p.deleted_at is null
+          and (p.${key} is null or length(trim(p.${key})) <= 4 or trim(p.${key}) = '[]')
+      `);
+    }
+  } catch (err) {
+    console.error("Failed to sync existing subcategory sections:", err);
+  }
+}
+
 const productSelect = `
 	select p.*,
 		mc.name as main_category_name,
@@ -196,7 +350,23 @@ const productSelect = `
 			p.main_image,
 			p.image
 		) as display_image,
-		(select count(*)::int from product_images pi where pi.product_id = p.id) as image_count
+		(select count(*)::int from product_images pi where pi.product_id = p.id) as image_count,
+		coalesce(
+			nullif(nullif(p.strong_points, ''), '[]'),
+			(select p2.strong_points from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.strong_points is not null and length(trim(p2.strong_points)) > 4 order by p2.id desc limit 1)
+		) as strong_points,
+		coalesce(
+			nullif(nullif(p.documents, ''), '[]'),
+			(select p2.documents from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.documents is not null and length(trim(p2.documents)) > 4 order by p2.id desc limit 1)
+		) as documents,
+		coalesce(
+			nullif(nullif(p.certifications, ''), '[]'),
+			(select p2.certifications from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.certifications is not null and length(trim(p2.certifications)) > 4 order by p2.id desc limit 1)
+		) as certifications,
+		coalesce(
+			nullif(nullif(p.features, ''), '[]'),
+			(select p2.features from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.features is not null and length(trim(p2.features)) > 4 order by p2.id desc limit 1)
+		) as features
 	from products p
 	left join subcategories sc on sc.id = p.subcategory_id
 	left join main_categories mc on mc.id = coalesce(p.main_category_id, sc.main_category_id)
@@ -426,6 +596,7 @@ function ensureWebCategorySchema() {
           console.warn("[web] Schema alter warning:", err.message);
         }
       }
+      await syncExistingSubcategorySections();
     })();
   }
   return categorySchemaReadyPromise;
@@ -822,6 +993,23 @@ router.post(
       if (req.body.category)
         await assignCategoryPath(result.rows[0].id, req.body.category);
       await addProductImages(result.rows[0].id, primaryImage, gallery);
+
+      const hasSections =
+        req.body.features ||
+        req.body.strong_points ||
+        req.body.documents ||
+        req.body.certifications;
+      if (hasSections) {
+        await syncSubcategorySections(result.rows[0].id, {
+          features: req.body.features,
+          strong_points: req.body.strong_points,
+          documents: req.body.documents,
+          certifications: req.body.certifications,
+        });
+      } else {
+        await inheritSubcategorySections(result.rows[0].id);
+      }
+
       res.json({ id: result.rows[0].id, message: "Product created" });
     } catch (error) {
       next(error);
@@ -909,6 +1097,14 @@ router.put(
       if (primaryImage || gallery.length) {
         await addProductImages(req.params.id, primaryImage, gallery);
       }
+
+      await syncSubcategorySections(req.params.id, {
+        features: fields.features,
+        strong_points: fields.strong_points,
+        documents: fields.documents,
+        certifications: fields.certifications,
+      });
+
       res.json({ message: "Product updated" });
     } catch (error) {
       next(error);
@@ -2099,7 +2295,61 @@ router.put(
         `update products set ${updates.join(", ")}, updated_at = now() where id = $${values.length} and deleted_at is null`,
         values,
       );
+
+      // UNIFY WITH SUBCATEGORY PRODUCTS:
+      await syncSubcategorySections(req.params.id, req.body);
+
       res.json({ message: "Product sections updated" });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.put(
+  ["/web/subcategories/:id/sections", "/subcategories/:id/sections"],
+  ...adminOnly,
+  async (req, res, next) => {
+    try {
+      await ensureWebCategorySchema();
+      const subcategoryId = req.params.id;
+      const allowedKeys = [
+        "features",
+        "certifications",
+        "documents",
+        "strong_points",
+      ];
+      const sets = [];
+      const vals = [];
+
+      for (const key of allowedKeys) {
+        if (req.body[key] !== undefined) {
+          vals.push(
+            typeof req.body[key] === "string"
+              ? req.body[key]
+              : req.body[key] === null
+                ? null
+                : JSON.stringify(req.body[key]),
+          );
+          sets.push(`${key} = $${vals.length}`);
+        }
+      }
+
+      if (!sets.length) {
+        return res.json({ message: "No sections to update" });
+      }
+
+      vals.push(subcategoryId);
+      const updateResult = await query(
+        `update products set ${sets.join(", ")}, updated_at = now()
+         where subcategory_id = $${vals.length} and deleted_at is null`,
+        vals,
+      );
+
+      res.json({
+        message: `Seksionet u sinkronizuan për ${updateResult.rowCount} produkte të nënkategorisë.`,
+        updatedCount: updateResult.rowCount,
+      });
     } catch (error) {
       next(error);
     }
