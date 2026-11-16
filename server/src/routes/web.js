@@ -587,6 +587,9 @@ function ensureWebCategorySchema() {
       "alter table products add column if not exists strong_points text",
       "alter table products add column if not exists documents text",
       "alter table products add column if not exists certifications text",
+      "alter table products alter column energy_class type varchar(50)",
+      "alter table products alter column seer type varchar(50)",
+      "alter table products alter column scop type varchar(50)",
     ];
     categorySchemaReadyPromise = (async () => {
       for (const sql of alters) {
@@ -2545,15 +2548,27 @@ router.post(
   async (req, res, next) => {
     try {
       await ensureWebCategorySchema();
-      const { items } = req.body;
+      const { items, updateExisting = true, createNew = true } = req.body;
       if (!Array.isArray(items) || !items.length) {
         return res
           .status(400)
           .json({ message: "Nuk u gjet asnjë rresht për importim." });
       }
 
+      const shouldUpdateExisting =
+        updateExisting !== false &&
+        updateExisting !== "false" &&
+        updateExisting !== 0 &&
+        updateExisting !== "0";
+      const shouldCreateNew =
+        createNew !== false &&
+        createNew !== "false" &&
+        createNew !== 0 &&
+        createNew !== "0";
+
       let updatedCount = 0;
       let createdCount = 0;
+      let skippedCount = 0;
       const errors = [];
 
       for (let i = 0; i < items.length; i++) {
@@ -2584,8 +2599,9 @@ router.post(
             return Number.isFinite(num) ? num : defaultVal;
           };
 
-          const id =
+          const rawId =
             row.id || row.ID ? String(row.id || row.ID).trim() : null;
+          const id = rawId && /^\d+$/.test(rawId) ? rawId : null;
           const code = String(
             row.product_code ||
               row["Kodi i Produktit"] ||
@@ -2625,13 +2641,14 @@ router.post(
           const stock = parseNum(row.stock || row["Stoku"], 0);
           const inStore = parseNum(row.in_store || row["Në Dyqan"], 0);
           const energyClass =
-            String(row.energy_class || row["Klasa e Energjisë"] || "").trim() ||
+            String(row.energy_class || row["Klasa e Energjisë"] || "").trim().slice(0, 50) ||
             null;
           const seer =
-            String(row.seer || row["SEER"] || "").trim() || null;
+            String(row.seer || row["SEER"] || "").trim().slice(0, 50) || null;
           const scop =
-            String(row.scop || row["SCOP"] || "").trim() || null;
-          const btu = String(row.btu || row["BTU"] || "").trim() || null;
+            String(row.scop || row["SCOP"] || "").trim().slice(0, 50) || null;
+          const rawBtu = String(row.btu || row["BTU"] || "").replace(/[^0-9]/g, "");
+          const btu = rawBtu ? parseInt(rawBtu, 10) : null;
           const shortDesc =
             String(
               row.short_description || row["Përshkrimi i Shkurtër"] || "",
@@ -2670,6 +2687,10 @@ router.post(
           }
 
           if (targetProductId) {
+            if (!shouldUpdateExisting) {
+              skippedCount++;
+              continue;
+            }
             await query(
               `update products
                set name = coalesce(nullif($1, ''), name),
@@ -2726,6 +2747,10 @@ router.post(
             await syncSubcategorySections(targetProductId, {});
             updatedCount++;
           } else {
+            if (!shouldCreateNew) {
+              skippedCount++;
+              continue;
+            }
             if (!name) continue;
             const insertRes = await query(
               `insert into products
@@ -2773,9 +2798,10 @@ router.post(
       await syncExistingSubcategorySections();
 
       res.json({
-        message: `Importi përfundoi me sukses: ${updatedCount} produkte u përditësuan, ${createdCount} produkte u shtuan.`,
+        message: `Importi përfundoi me sukses: ${updatedCount} produkte u përditësuan, ${createdCount} produkte u shtuan${skippedCount ? `, ${skippedCount} u kapërcyen` : ""}.`,
         updatedCount,
         createdCount,
+        skippedCount,
         errors,
       });
     } catch (err) {
