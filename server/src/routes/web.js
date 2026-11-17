@@ -523,6 +523,13 @@ router.get("/web/products", async (req, res, next) => {
       params.push(String(req.query.category));
       where.push("coalesce(sc.name, mc.name, p.category) = $" + params.length);
     }
+    if (req.query.subcategory_id) {
+      const subId = Number(req.query.subcategory_id);
+      if (Number.isFinite(subId) && subId > 0) {
+        params.push(subId);
+        where.push("p.subcategory_id = $" + params.length);
+      }
+    }
     const result = await query(
       `${productSelect}
 			 where ${where.join(" and ")}
@@ -590,6 +597,8 @@ function ensureWebCategorySchema() {
       "alter table products alter column energy_class type varchar(50)",
       "alter table products alter column seer type varchar(50)",
       "alter table products alter column scop type varchar(50)",
+      "alter table products add column if not exists product_type varchar(150)",
+      "alter table products add column if not exists power varchar(100)",
     ];
     categorySchemaReadyPromise = (async () => {
       for (const sql of alters) {
@@ -965,16 +974,18 @@ router.post(
       const listPrice = Number(req.body.list_price || 0);
       const result = await query(
         `insert into products
-			 (product_code, sku, name, category, description, short_description, specs, features,
+			 (product_code, sku, name, category, product_type, power, description, short_description, specs, features,
 			  strong_points, documents, certifications, price_range,
 			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, tracking, exceptions_type)
-			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15, $16, $17, $17, $18, $19, $20)
+			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17, $18, $19, $19, $20, $21, $22)
 			 returning id`,
         [
           req.body.product_code || null,
           req.body.product_code || req.body.sku || `WEB-${Date.now()}`,
           req.body.name,
           req.body.category || null,
+          String(req.body.product_type || "").trim() || null,
+          String(req.body.power || "").trim() || null,
           req.body.description || null,
           req.body.short_description || req.body.description || null,
           req.body.specs || null,
@@ -1043,6 +1054,14 @@ router.put(
         sku: req.body.product_code || req.body.sku || `WEB-${req.params.id}`,
         name: req.body.name,
         category: req.body.category || null,
+        product_type:
+          req.body.product_type !== undefined
+            ? String(req.body.product_type || "").trim() || null
+            : undefined,
+        power:
+          req.body.power !== undefined
+            ? String(req.body.power || "").trim() || null
+            : undefined,
         description: req.body.description || null,
         short_description:
           req.body.short_description || req.body.description || null,
@@ -2649,6 +2668,19 @@ router.post(
             String(row.scop || row["SCOP"] || "").trim().slice(0, 50) || null;
           const rawBtu = String(row.btu || row["BTU"] || "").replace(/[^0-9]/g, "");
           const btu = rawBtu ? parseInt(rawBtu, 10) : null;
+          const productType =
+            String(
+              row.product_type ||
+                row["Tipi i Produktit"] ||
+                row["Product Type"] ||
+                "",
+            )
+              .trim()
+              .slice(0, 150) || null;
+          const powerVal =
+            String(row.power || row["Fuqia"] || row["Power"] || "")
+              .trim()
+              .slice(0, 100) || null;
           const shortDesc =
             String(
               row.short_description || row["Përshkrimi i Shkurtër"] || "",
@@ -2710,79 +2742,85 @@ router.post(
                    seer = coalesce($15, seer),
                    scop = coalesce($16, scop),
                    btu = coalesce($17, btu),
-                   short_description = coalesce($18, short_description),
-                   description = coalesce($19, description),
-                   specs = coalesce(nullif($20, ''), specs),
-                   updated_at = now()
-               where id = $21`,
-              [
-                name,
-                model,
-                code,
-                price,
-                oldPrice,
-                listPrice,
-                warrantyYears,
-                isVisible,
-                isFeatured,
-                wifiEnabled,
-                heatingCooling,
-                stock,
-                inStore,
-                energyClass,
-                seer,
-                scop,
-                btu,
-                shortDesc,
-                desc,
-                rawSpecs,
-                targetProductId,
-              ],
-            );
+                    short_description = coalesce($18, short_description),
+                    description = coalesce($19, description),
+                    specs = coalesce(nullif($20, ''), specs),
+                    product_type = coalesce($21, product_type),
+                    power = coalesce($22, power),
+                    updated_at = now()
+                where id = $23`,
+               [
+                 name,
+                 model,
+                 code,
+                 price,
+                 oldPrice,
+                 listPrice,
+                 warrantyYears,
+                 isVisible,
+                 isFeatured,
+                 wifiEnabled,
+                 heatingCooling,
+                 stock,
+                 inStore,
+                 energyClass,
+                 seer,
+                 scop,
+                 btu,
+                 shortDesc,
+                 desc,
+                 rawSpecs,
+                 productType,
+                 powerVal,
+                 targetProductId,
+               ],
+             );
 
-            if (catPath) {
-              await assignCategoryPath(targetProductId, catPath);
-            }
+             if (catPath) {
+               await assignCategoryPath(targetProductId, catPath);
+             }
 
-            await syncSubcategorySections(targetProductId, {});
-            updatedCount++;
-          } else {
-            if (!shouldCreateNew) {
-              skippedCount++;
-              continue;
-            }
-            if (!name) continue;
-            const insertRes = await query(
-              `insert into products
-               (product_code, model, sku, name, description, short_description, specs,
-                price, list_price, old_price, warranty_years, is_visible, is_featured,
-                wifi_enabled, heating_cooling, stock, in_store, energy_class, seer, scop, btu, tracking, exceptions_type)
-               values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'B', 'A')
-               returning id`,
-              [
-                code || null,
-                model || null,
-                code || `WEB-${Date.now()}-${i}`,
-                name,
-                desc,
-                shortDesc,
-                rawSpecs || null,
-                price,
-                listPrice,
-                oldPrice,
-                warrantyYears,
-                isVisible,
-                isFeatured,
-                wifiEnabled,
-                heatingCooling,
-                stock,
-                inStore,
-                energyClass,
-                seer,
-                scop,
-                btu,
-              ],
-            );
+             await syncSubcategorySections(targetProductId, {});
+             updatedCount++;
+           } else {
+             if (!shouldCreateNew) {
+               skippedCount++;
+               continue;
+             }
+             if (!name) continue;
+             const insertRes = await query(
+               `insert into products
+                (product_code, model, sku, name, description, short_description, specs,
+                 price, list_price, old_price, warranty_years, is_visible, is_featured,
+                 wifi_enabled, heating_cooling, stock, in_store, energy_class, seer, scop, btu, product_type, power, tracking, exceptions_type)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'B', 'A')
+                returning id`,
+               [
+                 code || null,
+                 model || null,
+                 code || `WEB-${Date.now()}-${i}`,
+                 name,
+                 desc,
+                 shortDesc,
+                 rawSpecs || null,
+                 price,
+                 listPrice,
+                 oldPrice,
+                 warrantyYears,
+                 isVisible,
+                 isFeatured,
+                 wifiEnabled,
+                 heatingCooling,
+                 stock,
+                 inStore,
+                 energyClass,
+                 seer,
+                 scop,
+                 btu,
+                 productType,
+                 powerVal,
+               ],
+             );
             const newId = insertRes.rows[0].id;
             if (catPath) {
               await assignCategoryPath(newId, catPath);

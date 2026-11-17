@@ -93,6 +93,8 @@ async function run() {
       const scop = String(row.scop || row["SCOP"] || "").trim().slice(0, 50) || null;
       const rawBtu = String(row.btu || row["BTU"] || "").replace(/[^0-9]/g, "");
       const btu = rawBtu ? parseInt(rawBtu, 10) : null;
+      const productType = String(row.product_type || row["Tipi i Produktit"] || row["Product Type"] || "").trim().slice(0, 150) || null;
+      const powerVal = String(row.power || row["Fuqia"] || row["Power"] || "").trim().slice(0, 100) || null;
       const shortDesc = String(row.short_description || row["Përshkrimi i Shkurtër"] || "").trim() || null;
       const desc = String(row.description || row["Përshkrimi i Plotë"] || shortDesc || "").trim() || null;
 
@@ -133,8 +135,10 @@ async function run() {
                short_description = coalesce($18, short_description),
                description = coalesce($19, description),
                specs = coalesce(nullif($20, ''), specs),
+               product_type = coalesce($21, product_type),
+               power = coalesce($22, power),
                updated_at = now()
-           where id = $21`,
+           where id = $23`,
           [
             name,
             model,
@@ -156,6 +160,8 @@ async function run() {
             shortDesc,
             desc,
             rawSpecs,
+            productType,
+            powerVal,
             targetId,
           ],
         );
@@ -170,8 +176,8 @@ async function run() {
           `insert into products
            (product_code, model, sku, name, description, short_description, specs,
             price, list_price, old_price, warranty_years, is_visible, is_featured,
-            wifi_enabled, heating_cooling, stock, in_store, energy_class, seer, scop, btu, tracking, exceptions_type)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, 'B', 'A')
+            wifi_enabled, heating_cooling, stock, in_store, energy_class, seer, scop, btu, product_type, power, tracking, exceptions_type)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'B', 'A')
            returning id`,
           [
             code || null,
@@ -195,6 +201,8 @@ async function run() {
             seer,
             scop,
             btu,
+            productType,
+            powerVal,
           ],
         );
         createdCount++;
