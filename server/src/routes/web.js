@@ -132,6 +132,11 @@ async function getOrCreateMainCategoryId(name) {
     .trim()
     .replace(/\s+/g, " ");
   if (!normalized) return null;
+  const exact = await query(
+    "select id from main_categories where trim(name) = $1 limit 1",
+    [normalized],
+  );
+  if (exact.rows[0]) return exact.rows[0].id;
   const existing = await query(
     "select id from main_categories where lower(trim(name)) = lower($1) limit 1",
     [normalized],
@@ -149,6 +154,13 @@ async function getOrCreateSubcategoryId(mainCategoryId, name) {
     .trim()
     .replace(/\s+/g, " ");
   if (!mainCategoryId || !normalized) return null;
+  const exact = await query(
+    `select id from subcategories
+		 where main_category_id = $1 and trim(name) = $2
+		 limit 1`,
+    [mainCategoryId, normalized],
+  );
+  if (exact.rows[0]) return exact.rows[0].id;
   const existing = await query(
     `select id from subcategories
 		 where main_category_id = $1 and lower(trim(name)) = lower($2)
@@ -282,8 +294,7 @@ async function inheritSubcategorySections(productId) {
         String(currentVal).trim().length <= 4;
       if (isEmpty) {
         const siblingWithVal = siblingRes.rows.find(
-          (s) =>
-            s[key] && s[key] !== "[]" && String(s[key]).trim().length > 4,
+          (s) => s[key] && s[key] !== "[]" && String(s[key]).trim().length > 4,
         );
         if (siblingWithVal) {
           vals.push(siblingWithVal[key]);
@@ -599,6 +610,7 @@ function ensureWebCategorySchema() {
       "alter table products alter column scop type varchar(50)",
       "alter table products add column if not exists product_type varchar(150)",
       "alter table products add column if not exists power varchar(100)",
+      "alter table products add column if not exists btu_info_image varchar(500)",
     ];
     categorySchemaReadyPromise = (async () => {
       for (const sql of alters) {
@@ -960,6 +972,7 @@ router.post(
   upload.fields([
     { name: "image", maxCount: 1 },
     { name: "images", maxCount: 20 },
+    { name: "btu_info_image", maxCount: 1 },
   ]),
   async (req, res, next) => {
     try {
@@ -967,6 +980,8 @@ router.post(
       const primaryImage =
         productAssetPath(req.files?.image?.[0]) ||
         productAssetPath(req.files?.images?.[0]);
+      const btuInfoImage =
+        productAssetPath(req.files?.btu_info_image?.[0]) || null;
       const gallery = (req.files?.images || [])
         .map(productAssetPath)
         .filter(Boolean);
@@ -974,10 +989,10 @@ router.post(
       const listPrice = Number(req.body.list_price || 0);
       const result = await query(
         `insert into products
-			 (product_code, sku, name, category, product_type, power, description, short_description, specs, features,
+			 (product_code, sku, name, category, product_type, power, btu_info_image, description, short_description, specs, features,
 			  strong_points, documents, certifications, price_range,
 			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, tracking, exceptions_type)
-			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $17, $18, $19, $19, $20, $21, $22)
+			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18, $19, $20, $20, $21, $22, $23)
 			 returning id`,
         [
           req.body.product_code || null,
@@ -986,6 +1001,7 @@ router.post(
           req.body.category || null,
           String(req.body.product_type || "").trim() || null,
           String(req.body.power || "").trim() || null,
+          btuInfoImage,
           req.body.description || null,
           req.body.short_description || req.body.description || null,
           req.body.specs || null,
@@ -1037,6 +1053,7 @@ router.put(
   upload.fields([
     { name: "image", maxCount: 1 },
     { name: "images", maxCount: 20 },
+    { name: "btu_info_image", maxCount: 1 },
   ]),
   async (req, res, next) => {
     try {
@@ -1044,6 +1061,7 @@ router.put(
       const primaryImage =
         productAssetPath(req.files?.image?.[0]) ||
         productAssetPath(req.files?.images?.[0]);
+      const btuInfoImage = productAssetPath(req.files?.btu_info_image?.[0]);
       const gallery = (req.files?.images || [])
         .map(productAssetPath)
         .filter(Boolean);
@@ -1105,6 +1123,11 @@ router.put(
       ) {
         fields.image = null;
         fields.main_image = null;
+      }
+      if (btuInfoImage) {
+        fields.btu_info_image = btuInfoImage;
+      } else if (bool(req.body.remove_btu_info_image)) {
+        fields.btu_info_image = null;
       }
       const entries = Object.entries(fields).filter(
         ([, value]) => value !== undefined,
@@ -2288,7 +2311,10 @@ router.put(
         values.push(bool(req.body.is_visible));
         updates.push(`is_visible = $${values.length}`);
       }
-      if (req.body.product_code !== undefined && req.body.product_code !== null) {
+      if (
+        req.body.product_code !== undefined &&
+        req.body.product_code !== null
+      ) {
         const val = String(req.body.product_code).trim();
         if (val) {
           values.push(val);
@@ -2302,7 +2328,11 @@ router.put(
           updates.push(`model = $${values.length}`);
         }
       }
-      if (req.body.price !== undefined && req.body.price !== null && req.body.price !== "") {
+      if (
+        req.body.price !== undefined &&
+        req.body.price !== null &&
+        req.body.price !== ""
+      ) {
         const numPrice = Number(String(req.body.price).replace(/,/g, ""));
         if (Number.isFinite(numPrice) && numPrice > 0) {
           values.push(numPrice);
@@ -2405,7 +2435,9 @@ router.put(
       let prodsQuery;
       let params;
       if (Array.isArray(productIds) && productIds.length > 0) {
-        const ids = productIds.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+        const ids = productIds
+          .map(Number)
+          .filter((n) => Number.isFinite(n) && n > 0);
         prodsQuery = `select id, name, features from products where id = any($1::int[]) and deleted_at is null`;
         params = [ids];
       } else {
@@ -2428,7 +2460,10 @@ router.put(
       for (const p of targetProducts) {
         let fList = [];
         try {
-          fList = typeof p.features === "string" ? JSON.parse(p.features) : (p.features || []);
+          fList =
+            typeof p.features === "string"
+              ? JSON.parse(p.features)
+              : p.features || [];
         } catch {
           fList = [];
         }
@@ -2478,15 +2513,24 @@ router.put(
             { keys: ["plasma", "jon", "coldplasma"], match: ["plasma", "jon"] },
             { keys: ["filter", "filter"], match: ["filter", "filt"] },
             { keys: ["timer", "kohemates", "ore"], match: ["timer", "kohe"] },
-            { keys: ["fan", "ventilator", "shpejtesi", "xfan", "7"], match: ["fan", "fan7", "xfan"] },
+            {
+              keys: ["fan", "ventilator", "shpejtesi", "xfan", "7"],
+              match: ["fan", "fan7", "xfan"],
+            },
             { keys: ["3d", "qarkullim", "ajri3d"], match: ["3d", "3dair"] },
             { keys: ["ngroh", "preheat", "8c"], match: ["preheat", "heat"] },
             { keys: ["tension", "volt"], match: ["volt", "lowvolt"] },
             { keys: ["shkrirje", "defrost"], match: ["defrost", "shkrirje"] },
-            { keys: ["pastrim", "vetpastrim", "clean"], match: ["clean", "pastrim"] },
+            {
+              keys: ["pastrim", "vetpastrim", "clean"],
+              match: ["clean", "pastrim"],
+            },
             { keys: ["bllokim", "femije", "lock"], match: ["lock", "bllokim"] },
             { keys: ["rinisje", "restart"], match: ["restart", "rinisje"] },
-            { keys: ["diagnostik", "diagnose"], match: ["diagnose", "diagnostik"] },
+            {
+              keys: ["diagnostik", "diagnose"],
+              match: ["diagnose", "diagnostik"],
+            },
             { keys: ["uv", "uvc", "sterilizim"], match: ["uv", "uvc"] },
           ];
 
@@ -2495,7 +2539,9 @@ router.put(
               for (const ex of pool.icons) {
                 const exKey = cleanText(ex.key);
                 const exLabel = cleanText(ex.label);
-                if (r.match.some((m) => exKey.includes(m) || exLabel.includes(m))) {
+                if (
+                  r.match.some((m) => exKey.includes(m) || exLabel.includes(m))
+                ) {
                   return ex.icon;
                 }
               }
@@ -2505,7 +2551,7 @@ router.put(
           // Slot / Position fallback
           if (idx >= 0) {
             const slotIcon = Array.isArray(pool.features)
-              ? (pool.features[idx]?.icon || pool.features[idx])
+              ? pool.features[idx]?.icon || pool.features[idx]
               : null;
             if (slotIcon && typeof slotIcon === "string") {
               return slotIcon;
@@ -2519,7 +2565,10 @@ router.put(
       for (const prod of targetProducts) {
         let existingFeatures = [];
         try {
-          existingFeatures = typeof prod.features === "string" ? JSON.parse(prod.features) : (prod.features || []);
+          existingFeatures =
+            typeof prod.features === "string"
+              ? JSON.parse(prod.features)
+              : prod.features || [];
         } catch {
           existingFeatures = [];
         }
@@ -2534,7 +2583,13 @@ router.put(
 
           // If no icon in incoming row, strictly preserve from existing icons
           if (!preservedIcon) {
-            preservedIcon = findMatchedIcon(fn.label, fn.key, idx, ownIcons, existingFeatures);
+            preservedIcon = findMatchedIcon(
+              fn.label,
+              fn.key,
+              idx,
+              ownIcons,
+              existingFeatures,
+            );
           }
 
           return {
@@ -2660,13 +2715,21 @@ router.post(
           const stock = parseNum(row.stock || row["Stoku"], 0);
           const inStore = parseNum(row.in_store || row["Në Dyqan"], 0);
           const energyClass =
-            String(row.energy_class || row["Klasa e Energjisë"] || "").trim().slice(0, 50) ||
-            null;
+            String(row.energy_class || row["Klasa e Energjisë"] || "")
+              .trim()
+              .slice(0, 50) || null;
           const seer =
-            String(row.seer || row["SEER"] || "").trim().slice(0, 50) || null;
+            String(row.seer || row["SEER"] || "")
+              .trim()
+              .slice(0, 50) || null;
           const scop =
-            String(row.scop || row["SCOP"] || "").trim().slice(0, 50) || null;
-          const rawBtu = String(row.btu || row["BTU"] || "").replace(/[^0-9]/g, "");
+            String(row.scop || row["SCOP"] || "")
+              .trim()
+              .slice(0, 50) || null;
+          const rawBtu = String(row.btu || row["BTU"] || "").replace(
+            /[^0-9]/g,
+            "",
+          );
           const btu = rawBtu ? parseInt(rawBtu, 10) : null;
           const productType =
             String(
@@ -2749,78 +2812,78 @@ router.post(
                     power = coalesce($22, power),
                     updated_at = now()
                 where id = $23`,
-               [
-                 name,
-                 model,
-                 code,
-                 price,
-                 oldPrice,
-                 listPrice,
-                 warrantyYears,
-                 isVisible,
-                 isFeatured,
-                 wifiEnabled,
-                 heatingCooling,
-                 stock,
-                 inStore,
-                 energyClass,
-                 seer,
-                 scop,
-                 btu,
-                 shortDesc,
-                 desc,
-                 rawSpecs,
-                 productType,
-                 powerVal,
-                 targetProductId,
-               ],
-             );
+              [
+                name,
+                model,
+                code,
+                price,
+                oldPrice,
+                listPrice,
+                warrantyYears,
+                isVisible,
+                isFeatured,
+                wifiEnabled,
+                heatingCooling,
+                stock,
+                inStore,
+                energyClass,
+                seer,
+                scop,
+                btu,
+                shortDesc,
+                desc,
+                rawSpecs,
+                productType,
+                powerVal,
+                targetProductId,
+              ],
+            );
 
-             if (catPath) {
-               await assignCategoryPath(targetProductId, catPath);
-             }
+            if (catPath) {
+              await assignCategoryPath(targetProductId, catPath);
+            }
 
-             await syncSubcategorySections(targetProductId, {});
-             updatedCount++;
-           } else {
-             if (!shouldCreateNew) {
-               skippedCount++;
-               continue;
-             }
-             if (!name) continue;
-             const insertRes = await query(
-               `insert into products
+            await syncSubcategorySections(targetProductId, {});
+            updatedCount++;
+          } else {
+            if (!shouldCreateNew) {
+              skippedCount++;
+              continue;
+            }
+            if (!name) continue;
+            const insertRes = await query(
+              `insert into products
                 (product_code, model, sku, name, description, short_description, specs,
                  price, list_price, old_price, warranty_years, is_visible, is_featured,
                  wifi_enabled, heating_cooling, stock, in_store, energy_class, seer, scop, btu, product_type, power, tracking, exceptions_type)
                 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'B', 'A')
                 returning id`,
-               [
-                 code || null,
-                 model || null,
-                 code || `WEB-${Date.now()}-${i}`,
-                 name,
-                 desc,
-                 shortDesc,
-                 rawSpecs || null,
-                 price,
-                 listPrice,
-                 oldPrice,
-                 warrantyYears,
-                 isVisible,
-                 isFeatured,
-                 wifiEnabled,
-                 heatingCooling,
-                 stock,
-                 inStore,
-                 energyClass,
-                 seer,
-                 scop,
-                 btu,
-                 productType,
-                 powerVal,
-               ],
-             );
+              [
+                code || null,
+                model || null,
+                code || `WEB-${Date.now()}-${i}`,
+                name,
+                desc,
+                shortDesc,
+                rawSpecs || null,
+                price,
+                listPrice,
+                oldPrice,
+                warrantyYears,
+                isVisible,
+                isFeatured,
+                wifiEnabled,
+                heatingCooling,
+                stock,
+                inStore,
+                energyClass,
+                seer,
+                scop,
+                btu,
+                productType,
+                powerVal,
+              ],
+            );
             const newId = insertRes.rows[0].id;
             if (catPath) {
               await assignCategoryPath(newId, catPath);
