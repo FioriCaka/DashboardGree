@@ -205,12 +205,29 @@ async function assignCategoryPath(productId, rawCategory) {
 async function syncSubcategorySections(productId, sections = {}) {
   try {
     const pRes = await query(
-      "select subcategory_id, category from products where id = $1",
+      "select subcategory_id, category, btu_info_image, combinations_info_file from products where id = $1",
       [productId],
     );
     if (!pRes.rows.length) return;
-    const subcategoryId = pRes.rows[0].subcategory_id;
-    const category = pRes.rows[0].category;
+    const prodRow = pRes.rows[0];
+    const subcategoryId = prodRow.subcategory_id;
+    const category = prodRow.category;
+
+    const effectiveSections = { ...sections };
+    if (
+      effectiveSections.btu_info_image === undefined &&
+      prodRow.btu_info_image &&
+      String(prodRow.btu_info_image).trim()
+    ) {
+      effectiveSections.btu_info_image = prodRow.btu_info_image;
+    }
+    if (
+      effectiveSections.combinations_info_file === undefined &&
+      prodRow.combinations_info_file &&
+      String(prodRow.combinations_info_file).trim()
+    ) {
+      effectiveSections.combinations_info_file = prodRow.combinations_info_file;
+    }
 
     const allowedKeys = [
       "features",
@@ -224,36 +241,44 @@ async function syncSubcategorySections(productId, sections = {}) {
     const vals = [];
 
     for (const key of allowedKeys) {
-      if (sections[key] !== undefined) {
+      if (effectiveSections[key] !== undefined) {
         vals.push(
-          typeof sections[key] === "string"
-            ? sections[key]
-            : sections[key] === null
+          typeof effectiveSections[key] === "string"
+            ? effectiveSections[key]
+            : effectiveSections[key] === null
               ? null
-              : JSON.stringify(sections[key]),
+              : JSON.stringify(effectiveSections[key]),
         );
         sets.push(`${key} = $${vals.length}`);
       }
     }
 
-    if (!sets.length) return;
+    if (sets.length) {
+      if (subcategoryId) {
+        vals.push(subcategoryId);
+        vals.push(productId);
+        await query(
+          `update products set ${sets.join(", ")}, updated_at = now()
+           where subcategory_id = $${vals.length - 1} and id != $${vals.length} and deleted_at is null`,
+          vals,
+        );
+      } else if (category) {
+        vals.push(category);
+        vals.push(productId);
+        await query(
+          `update products set ${sets.join(", ")}, updated_at = now()
+           where category = $${vals.length - 1} and id != $${vals.length} and deleted_at is null`,
+          vals,
+        );
+      }
+    }
 
-    if (subcategoryId) {
-      vals.push(subcategoryId);
-      vals.push(productId);
-      await query(
-        `update products set ${sets.join(", ")}, updated_at = now()
-         where subcategory_id = $${vals.length - 1} and id != $${vals.length} and deleted_at is null`,
-        vals,
-      );
-    } else if (category) {
-      vals.push(category);
-      vals.push(productId);
-      await query(
-        `update products set ${sets.join(", ")}, updated_at = now()
-         where category = $${vals.length - 1} and id != $${vals.length} and deleted_at is null`,
-        vals,
-      );
+    // If this product itself is missing any subcategory-level section/file (and wasn't explicitly cleared), inherit from siblings
+    if (
+      effectiveSections.btu_info_image !== null &&
+      effectiveSections.combinations_info_file !== null
+    ) {
+      await inheritSubcategorySections(productId);
     }
   } catch (err) {
     console.error("Failed to sync subcategory sections:", err);
@@ -2461,6 +2486,8 @@ router.put(
         "certifications",
         "features",
         "specs",
+        "btu_info_image",
+        "combinations_info_file",
       ];
       const updates = [];
       const values = [];
@@ -2539,6 +2566,8 @@ router.put(
         "certifications",
         "documents",
         "strong_points",
+        "btu_info_image",
+        "combinations_info_file",
       ];
       const sets = [];
       const vals = [];
