@@ -550,10 +550,15 @@ async function getMirroredSubcategoryMap() {
   ]);
   const mainByNorm = new Map();
   for (const m of mainRes.rows) {
-    mainByNorm.set(String(m.name || "").trim().toUpperCase(), {
-      id: Number(m.id),
-      name: m.name,
-    });
+    mainByNorm.set(
+      String(m.name || "")
+        .trim()
+        .toUpperCase(),
+      {
+        id: Number(m.id),
+        name: m.name,
+      },
+    );
   }
   const subsByMainId = new Map();
   for (const s of subRes.rows) {
@@ -562,7 +567,9 @@ async function getMirroredSubcategoryMap() {
     subsByMainId.get(mid).push({
       id: Number(s.id),
       name: s.name,
-      norm: String(s.name || "").trim().toLowerCase(),
+      norm: String(s.name || "")
+        .trim()
+        .toLowerCase(),
     });
   }
 
@@ -1133,7 +1140,7 @@ router.post(
 			 (product_code, sku, name, category, product_type, power, btu_info_image, combinations_info_file, description, short_description, specs, features,
 			  strong_points, documents, certifications, price_range,
 			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, stock, tracking, exceptions_type)
-			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $21, $22, $22, $23, $24)
+			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $21, $22::numeric, $22::int, $23, $24)
 			 returning id`,
         [
           req.body.product_code || null,
@@ -2961,8 +2968,8 @@ router.post(
                    is_featured = $9,
                    wifi_enabled = $10,
                    heating_cooling = $11,
-                   stock = $12,
-                   amount = $12,
+                   stock = $12::int,
+                   amount = $12::numeric,
                    in_store = $13,
                    energy_class = coalesce($14, energy_class),
                    seer = coalesce($15, seer),
@@ -3022,7 +3029,7 @@ router.post(
                 (product_code, model, sku, name, description, short_description, specs,
                  price, list_price, old_price, warranty_years, is_visible, is_featured,
                  wifi_enabled, heating_cooling, stock, amount, in_store, energy_class, seer, scop, btu, product_type, power, tracking, exceptions_type)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, $17, $18, $19, $20, $21, $22, $23, 'B', 'A')
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::int, $16::numeric, $17, $18, $19, $20, $21, $22, $23, 'B', 'A')
                 returning id`,
               [
                 code || null,
