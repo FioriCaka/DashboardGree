@@ -1007,6 +1007,7 @@ router.post(
         .filter(Boolean);
       const price = Number(req.body.price || 0);
       const listPrice = Number(req.body.list_price || 0);
+      const stockAmount = Number(req.body.amount ?? req.body.stock ?? 0);
       const uniqueSku = await ensureUniqueSku(
         req.body.product_code || req.body.sku || `WEB-${Date.now()}`,
       );
@@ -1014,8 +1015,8 @@ router.post(
         `insert into products
 			 (product_code, sku, name, category, product_type, power, btu_info_image, description, short_description, specs, features,
 			  strong_points, documents, certifications, price_range,
-			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, tracking, exceptions_type)
-			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18, $19, $20, $20, $21, $22, $23)
+			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, stock, tracking, exceptions_type)
+			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18, $19, $20, $20, $21, $21, $22, $23)
 			 returning id`,
         [
           req.body.product_code || null,
@@ -1038,7 +1039,7 @@ router.post(
           primaryImage,
           price,
           listPrice,
-          Number(req.body.amount || 0),
+          stockAmount,
           req.body.tracking || "B",
           req.body.exceptions_type || "A",
         ],
@@ -1137,7 +1138,8 @@ router.put(
         price,
         list_price: listPrice,
         old_price: listPrice,
-        amount: Number(req.body.amount || 0),
+        amount: Number(req.body.amount ?? req.body.stock ?? 0),
+        stock: Number(req.body.amount ?? req.body.stock ?? 0),
         tracking: req.body.tracking || "B",
         exceptions_type: req.body.exceptions_type || "A",
       };
@@ -2827,6 +2829,7 @@ router.post(
                    wifi_enabled = $10,
                    heating_cooling = $11,
                    stock = $12,
+                   amount = $12,
                    in_store = $13,
                    energy_class = coalesce($14, energy_class),
                    seer = coalesce($15, seer),
@@ -2885,8 +2888,8 @@ router.post(
               `insert into products
                 (product_code, model, sku, name, description, short_description, specs,
                  price, list_price, old_price, warranty_years, is_visible, is_featured,
-                 wifi_enabled, heating_cooling, stock, in_store, energy_class, seer, scop, btu, product_type, power, tracking, exceptions_type)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'B', 'A')
+                 wifi_enabled, heating_cooling, stock, amount, in_store, energy_class, seer, scop, btu, product_type, power, tracking, exceptions_type)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16, $17, $18, $19, $20, $21, $22, $23, 'B', 'A')
                 returning id`,
               [
                 code || null,

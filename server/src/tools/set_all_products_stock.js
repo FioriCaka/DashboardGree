@@ -11,12 +11,12 @@ async function run() {
 
   const res = await query(
     `update products
-     set stock = $1, updated_at = now()
+     set stock = $1, amount = $1, updated_at = now()
      where deleted_at is null`,
     [stockValue],
   );
 
-  console.log(`[Stock] Updated ${res.rowCount} products to stock = ${stockValue}.`);
+  console.log(`[Stock] Updated ${res.rowCount} products to stock = ${stockValue}, amount = ${stockValue}.`);
   process.exit(0);
 }
 
