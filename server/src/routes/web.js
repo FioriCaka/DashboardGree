@@ -611,6 +611,10 @@ function ensureWebCategorySchema() {
       "alter table products add column if not exists product_type varchar(150)",
       "alter table products add column if not exists power varchar(100)",
       "alter table products add column if not exists btu_info_image varchar(500)",
+      "select setval(pg_get_serial_sequence('products', 'id'), greatest(coalesce((select max(id) from products), 1), 1), (select count(*) > 0 from products))",
+      "select setval(pg_get_serial_sequence('product_images', 'id'), greatest(coalesce((select max(id) from product_images), 1), 1), (select count(*) > 0 from product_images))",
+      "select setval(pg_get_serial_sequence('main_categories', 'id'), greatest(coalesce((select max(id) from main_categories), 1), 1), (select count(*) > 0 from main_categories))",
+      "select setval(pg_get_serial_sequence('subcategories', 'id'), greatest(coalesce((select max(id) from subcategories), 1), 1), (select count(*) > 0 from subcategories))",
     ];
     categorySchemaReadyPromise = (async () => {
       for (const sql of alters) {
@@ -966,6 +970,22 @@ router.delete(
   },
 );
 
+async function ensureUniqueSku(candidateSku, excludeProductId = null) {
+  const base = String(candidateSku || "").trim() || `WEB-${Date.now()}`;
+  let sku = base;
+  let counter = 1;
+  while (true) {
+    const check = excludeProductId
+      ? await query(
+          "select id from products where sku = $1 and id <> $2 limit 1",
+          [sku, excludeProductId],
+        )
+      : await query("select id from products where sku = $1 limit 1", [sku]);
+    if (!check.rows.length) return sku;
+    sku = `${base}-${counter++}`;
+  }
+}
+
 router.post(
   "/web/products",
   ...adminOnly,
@@ -987,6 +1007,9 @@ router.post(
         .filter(Boolean);
       const price = Number(req.body.price || 0);
       const listPrice = Number(req.body.list_price || 0);
+      const uniqueSku = await ensureUniqueSku(
+        req.body.product_code || req.body.sku || `WEB-${Date.now()}`,
+      );
       const result = await query(
         `insert into products
 			 (product_code, sku, name, category, product_type, power, btu_info_image, description, short_description, specs, features,
@@ -996,7 +1019,7 @@ router.post(
 			 returning id`,
         [
           req.body.product_code || null,
-          req.body.product_code || req.body.sku || `WEB-${Date.now()}`,
+          uniqueSku,
           req.body.name,
           req.body.category || null,
           String(req.body.product_type || "").trim() || null,
@@ -1067,9 +1090,13 @@ router.put(
         .filter(Boolean);
       const price = Number(req.body.price || 0);
       const listPrice = Number(req.body.list_price || 0);
+      const uniqueSku = await ensureUniqueSku(
+        req.body.product_code || req.body.sku || `WEB-${req.params.id}`,
+        req.params.id,
+      );
       const fields = {
         product_code: req.body.product_code || null,
-        sku: req.body.product_code || req.body.sku || `WEB-${req.params.id}`,
+        sku: uniqueSku,
         name: req.body.name,
         category: req.body.category || null,
         product_type:
@@ -2851,6 +2878,9 @@ router.post(
               continue;
             }
             if (!name) continue;
+            const uniqueSku = await ensureUniqueSku(
+              code || `WEB-${Date.now()}-${i}`,
+            );
             const insertRes = await query(
               `insert into products
                 (product_code, model, sku, name, description, short_description, specs,
@@ -2861,7 +2891,7 @@ router.post(
               [
                 code || null,
                 model || null,
-                code || `WEB-${Date.now()}-${i}`,
+                uniqueSku,
                 name,
                 desc,
                 shortDesc,
