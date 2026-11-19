@@ -217,6 +217,8 @@ async function syncSubcategorySections(productId, sections = {}) {
       "certifications",
       "documents",
       "strong_points",
+      "btu_info_image",
+      "combinations_info_file",
     ];
     const sets = [];
     const vals = [];
@@ -265,7 +267,7 @@ async function syncSubcategorySections(productId, sections = {}) {
 async function inheritSubcategorySections(productId) {
   try {
     const pRes = await query(
-      "select subcategory_id, category, features, certifications, documents, strong_points from products where id = $1",
+      "select subcategory_id, category, features, certifications, documents, strong_points, btu_info_image, combinations_info_file from products where id = $1",
       [productId],
     );
     if (!pRes.rows.length) return;
@@ -274,17 +276,24 @@ async function inheritSubcategorySections(productId) {
     if (!subcatId) return;
 
     const siblingRes = await query(
-      `select features, certifications, documents, strong_points
+      `select features, certifications, documents, strong_points, btu_info_image, combinations_info_file
        from products
        where subcategory_id = $1 and id != $2 and deleted_at is null
-       order by id desc limit 10`,
+       order by updated_at desc nulls last, id desc limit 10`,
       [subcatId, productId],
     );
     if (!siblingRes.rows.length) return;
 
     const updates = [];
     const vals = [];
-    const keys = ["features", "certifications", "documents", "strong_points"];
+    const keys = [
+      "features",
+      "certifications",
+      "documents",
+      "strong_points",
+      "btu_info_image",
+      "combinations_info_file",
+    ];
 
     for (const key of keys) {
       const currentVal = prod[key];
@@ -326,6 +335,8 @@ async function syncExistingSubcategorySections() {
       "certifications",
       "documents",
       "strong_points",
+      "btu_info_image",
+      "combinations_info_file",
     ];
     for (const key of allowedKeys) {
       await query(`
@@ -339,7 +350,7 @@ async function syncExistingSubcategorySections() {
             and ${key} is not null
             and length(trim(${key})) > 4
             and trim(${key}) != '[]'
-          order by subcategory_id, id desc
+          order by subcategory_id, updated_at desc nulls last, id desc
         ) src
         where p.subcategory_id = src.subcategory_id
           and p.deleted_at is null
@@ -377,7 +388,15 @@ const productSelect = `
 		coalesce(
 			nullif(nullif(p.features, ''), '[]'),
 			(select p2.features from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.features is not null and length(trim(p2.features)) > 4 order by p2.id desc limit 1)
-		) as features
+		) as features,
+		coalesce(
+			nullif(trim(p.btu_info_image), ''),
+			(select p2.btu_info_image from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.btu_info_image is not null and length(trim(p2.btu_info_image)) > 0 order by p2.updated_at desc nulls last, p2.id desc limit 1)
+		) as btu_info_image,
+		coalesce(
+			nullif(trim(p.combinations_info_file), ''),
+			(select p2.combinations_info_file from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.combinations_info_file is not null and length(trim(p2.combinations_info_file)) > 0 order by p2.updated_at desc nulls last, p2.id desc limit 1)
+		) as combinations_info_file
 	from products p
 	left join subcategories sc on sc.id = p.subcategory_id
 	left join main_categories mc on mc.id = coalesce(p.main_category_id, sc.main_category_id)
@@ -700,6 +719,7 @@ function ensureWebCategorySchema() {
       "alter table products add column if not exists product_type varchar(150)",
       "alter table products add column if not exists power varchar(100)",
       "alter table products add column if not exists btu_info_image varchar(500)",
+      "alter table products add column if not exists combinations_info_file varchar(500)",
       "select setval(pg_get_serial_sequence('products', 'id'), greatest(coalesce((select max(id) from products), 1), 1), (select count(*) > 0 from products))",
       "select setval(pg_get_serial_sequence('product_images', 'id'), greatest(coalesce((select max(id) from product_images), 1), 1), (select count(*) > 0 from product_images))",
       "select setval(pg_get_serial_sequence('main_categories', 'id'), greatest(coalesce((select max(id) from main_categories), 1), 1), (select count(*) > 0 from main_categories))",
@@ -1087,6 +1107,7 @@ router.post(
     { name: "image", maxCount: 1 },
     { name: "images", maxCount: 20 },
     { name: "btu_info_image", maxCount: 1 },
+    { name: "combinations_info_file", maxCount: 1 },
   ]),
   async (req, res, next) => {
     try {
@@ -1096,6 +1117,8 @@ router.post(
         productAssetPath(req.files?.images?.[0]);
       const btuInfoImage =
         productAssetPath(req.files?.btu_info_image?.[0]) || null;
+      const combinationsInfoFile =
+        productAssetPath(req.files?.combinations_info_file?.[0]) || null;
       const gallery = (req.files?.images || [])
         .map(productAssetPath)
         .filter(Boolean);
@@ -1107,10 +1130,10 @@ router.post(
       );
       const result = await query(
         `insert into products
-			 (product_code, sku, name, category, product_type, power, btu_info_image, description, short_description, specs, features,
+			 (product_code, sku, name, category, product_type, power, btu_info_image, combinations_info_file, description, short_description, specs, features,
 			  strong_points, documents, certifications, price_range,
 			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, stock, tracking, exceptions_type)
-			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18, $19, $20, $20, $21, $21, $22, $23)
+			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $21, $22, $22, $23, $24)
 			 returning id`,
         [
           req.body.product_code || null,
@@ -1120,6 +1143,7 @@ router.post(
           String(req.body.product_type || "").trim() || null,
           String(req.body.power || "").trim() || null,
           btuInfoImage,
+          combinationsInfoFile,
           req.body.description || null,
           req.body.short_description || req.body.description || null,
           req.body.specs || null,
@@ -1146,13 +1170,17 @@ router.post(
         req.body.features ||
         req.body.strong_points ||
         req.body.documents ||
-        req.body.certifications;
+        req.body.certifications ||
+        btuInfoImage ||
+        combinationsInfoFile;
       if (hasSections) {
         await syncSubcategorySections(result.rows[0].id, {
           features: req.body.features,
           strong_points: req.body.strong_points,
           documents: req.body.documents,
           certifications: req.body.certifications,
+          btu_info_image: btuInfoImage || undefined,
+          combinations_info_file: combinationsInfoFile || undefined,
         });
       } else {
         await inheritSubcategorySections(result.rows[0].id);
@@ -1172,6 +1200,7 @@ router.put(
     { name: "image", maxCount: 1 },
     { name: "images", maxCount: 20 },
     { name: "btu_info_image", maxCount: 1 },
+    { name: "combinations_info_file", maxCount: 1 },
   ]),
   async (req, res, next) => {
     try {
@@ -1180,6 +1209,9 @@ router.put(
         productAssetPath(req.files?.image?.[0]) ||
         productAssetPath(req.files?.images?.[0]);
       const btuInfoImage = productAssetPath(req.files?.btu_info_image?.[0]);
+      const combinationsInfoFile = productAssetPath(
+        req.files?.combinations_info_file?.[0],
+      );
       const gallery = (req.files?.images || [])
         .map(productAssetPath)
         .filter(Boolean);
@@ -1252,6 +1284,11 @@ router.put(
       } else if (bool(req.body.remove_btu_info_image)) {
         fields.btu_info_image = null;
       }
+      if (combinationsInfoFile) {
+        fields.combinations_info_file = combinationsInfoFile;
+      } else if (bool(req.body.remove_combinations_info_file)) {
+        fields.combinations_info_file = null;
+      }
       const entries = Object.entries(fields).filter(
         ([, value]) => value !== undefined,
       );
@@ -1271,6 +1308,8 @@ router.put(
         strong_points: fields.strong_points,
         documents: fields.documents,
         certifications: fields.certifications,
+        btu_info_image: fields.btu_info_image,
+        combinations_info_file: fields.combinations_info_file,
       });
 
       res.json({ message: "Product updated" });
