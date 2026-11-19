@@ -522,10 +522,71 @@ router.post(
   },
 );
 
+const MIRRORED_MAIN_CATEGORY_PAIRS = [["MINI VRF", "MINI VRF GMV5"]];
+
+async function getMirroredSubcategoryMap() {
+  const [mainRes, subRes] = await Promise.all([
+    query("select id, name from main_categories"),
+    query("select id, name, main_category_id from subcategories"),
+  ]);
+  const mainByNorm = new Map();
+  for (const m of mainRes.rows) {
+    mainByNorm.set(String(m.name || "").trim().toUpperCase(), {
+      id: Number(m.id),
+      name: m.name,
+    });
+  }
+  const subsByMainId = new Map();
+  for (const s of subRes.rows) {
+    const mid = Number(s.main_category_id);
+    if (!subsByMainId.has(mid)) subsByMainId.set(mid, []);
+    subsByMainId.get(mid).push({
+      id: Number(s.id),
+      name: s.name,
+      norm: String(s.name || "").trim().toLowerCase(),
+    });
+  }
+
+  const mirrorMap = new Map();
+  const addLink = (fromSubId, target) => {
+    if (!mirrorMap.has(fromSubId)) mirrorMap.set(fromSubId, []);
+    const list = mirrorMap.get(fromSubId);
+    if (!list.some((x) => x.subId === target.subId)) list.push(target);
+  };
+
+  for (const [nameA, nameB] of MIRRORED_MAIN_CATEGORY_PAIRS) {
+    const mainA = mainByNorm.get(nameA.toUpperCase());
+    const mainB = mainByNorm.get(nameB.toUpperCase());
+    if (!mainA || !mainB) continue;
+    const subsA = subsByMainId.get(mainA.id) || [];
+    const subsB = subsByMainId.get(mainB.id) || [];
+    for (const sa of subsA) {
+      const sb = subsB.find((x) => x.norm === sa.norm);
+      if (!sb) continue;
+      addLink(sa.id, {
+        subId: sb.id,
+        subName: sb.name,
+        mainId: mainB.id,
+        mainName: mainB.name,
+      });
+      addLink(sb.id, {
+        subId: sa.id,
+        subName: sa.name,
+        mainId: mainA.id,
+        mainName: mainA.name,
+      });
+    }
+  }
+  return mirrorMap;
+}
+
 router.get("/web/products", async (req, res, next) => {
   try {
     const params = [];
     const includeHidden = String(req.query.includeHidden || "") === "1";
+    const mirrorMap = includeHidden
+      ? new Map()
+      : await getMirroredSubcategoryMap();
     const where = ["p.deleted_at is null"];
     if (!includeHidden) {
       where.push("p.is_visible = true");
@@ -537,8 +598,12 @@ router.get("/web/products", async (req, res, next) => {
     if (req.query.subcategory_id) {
       const subId = Number(req.query.subcategory_id);
       if (Number.isFinite(subId) && subId > 0) {
-        params.push(subId);
-        where.push("p.subcategory_id = $" + params.length);
+        const linkedSubIds = [
+          subId,
+          ...(mirrorMap.get(subId) || []).map((m) => m.subId),
+        ];
+        params.push(linkedSubIds);
+        where.push("p.subcategory_id = any($" + params.length + "::bigint[])");
       }
     }
     const result = await query(
@@ -548,6 +613,30 @@ router.get("/web/products", async (req, res, next) => {
       params,
     );
     let rows = result.rows.map(mapProduct);
+    if (!includeHidden && mirrorMap.size > 0 && !req.query.subcategory_id) {
+      const mirroredRows = [];
+      for (const row of rows) {
+        const mirrors = mirrorMap.get(Number(row.subcategory_id)) || [];
+        for (const m of mirrors) {
+          mirroredRows.push({
+            ...row,
+            main_category_id: m.mainId,
+            main_category_name: m.mainName,
+            main_category: m.mainName,
+            subcategory_id: m.subId,
+            subcategory_name: m.subName,
+            subcategory: m.subName,
+            category: m.subName,
+            category_path: [m.mainName, m.subName],
+            category_path_label: `${m.mainName} -> ${m.subName}`,
+            is_mirrored: true,
+          });
+        }
+      }
+      if (mirroredRows.length) {
+        rows = [...rows, ...mirroredRows];
+      }
+    }
     if (req.query.main_category) {
       const value = String(req.query.main_category).toUpperCase();
       rows = rows.filter(
@@ -635,7 +724,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
   try {
     await ensureWebCategorySchema();
     const includeEmpty = String(req.query.includeEmpty || "") === "1";
-    const [mainRows, subRows, countsRows] = await Promise.all([
+    const [mainRows, subRows, countsRows, mirrorMap] = await Promise.all([
       query(
         "select id, name, sort_order, is_special, is_header, is_horizontal, is_stacked, tree_type from main_categories order by sort_order asc, id asc",
       ),
@@ -648,6 +737,7 @@ router.get("/web/products/category-tree", async (req, res, next) => {
 				 where deleted_at is null and is_visible = true
 				 group by main_category_id, subcategory_id`,
       ),
+      getMirroredSubcategoryMap(),
     ]);
     const mainCounts = new Map();
     const subCounts = new Map();
@@ -657,11 +747,15 @@ router.get("/web/products/category-tree", async (req, res, next) => {
           Number(row.main_category_id),
           (mainCounts.get(Number(row.main_category_id)) || 0) + row.total,
         );
-      if (row.subcategory_id)
-        subCounts.set(
-          Number(row.subcategory_id),
-          (subCounts.get(Number(row.subcategory_id)) || 0) + row.total,
-        );
+      if (row.subcategory_id) {
+        const sid = Number(row.subcategory_id);
+        subCounts.set(sid, (subCounts.get(sid) || 0) + row.total);
+        const mirrors = mirrorMap.get(sid) || [];
+        for (const m of mirrors) {
+          subCounts.set(m.subId, (subCounts.get(m.subId) || 0) + row.total);
+          mainCounts.set(m.mainId, (mainCounts.get(m.mainId) || 0) + row.total);
+        }
+      }
     }
     const nodes = new Map(
       mainRows.rows.map((row) => [
