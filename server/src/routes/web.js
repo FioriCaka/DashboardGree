@@ -205,7 +205,7 @@ async function assignCategoryPath(productId, rawCategory) {
 async function syncSubcategorySections(productId, sections = {}) {
   try {
     const pRes = await query(
-      "select subcategory_id, category, btu_info_image, combinations_info_file from products where id = $1",
+      "select subcategory_id, category, btu_info_image, combinations_info_file, btu_info_shared, combinations_info_shared, documents_shared from products where id = $1",
       [productId],
     );
     if (!pRes.rows.length) return;
@@ -213,20 +213,82 @@ async function syncSubcategorySections(productId, sections = {}) {
     const subcategoryId = prodRow.subcategory_id;
     const category = prodRow.category;
 
+    const btuShared =
+      sections.btu_info_shared !== undefined
+        ? bool(sections.btu_info_shared)
+        : prodRow.btu_info_shared !== false;
+    const combShared =
+      sections.combinations_info_shared !== undefined
+        ? bool(sections.combinations_info_shared)
+        : prodRow.combinations_info_shared !== false;
+    const docsShared =
+      sections.documents_shared !== undefined
+        ? bool(sections.documents_shared)
+        : prodRow.documents_shared !== false;
+
     const effectiveSections = { ...sections };
-    if (
-      effectiveSections.btu_info_image === undefined &&
-      prodRow.btu_info_image &&
-      String(prodRow.btu_info_image).trim()
-    ) {
-      effectiveSections.btu_info_image = prodRow.btu_info_image;
+    delete effectiveSections.btu_info_shared;
+    delete effectiveSections.combinations_info_shared;
+    delete effectiveSections.documents_shared;
+
+    if (btuShared) {
+      if (
+        effectiveSections.btu_info_image === undefined &&
+        prodRow.btu_info_image &&
+        String(prodRow.btu_info_image).trim()
+      ) {
+        effectiveSections.btu_info_image = prodRow.btu_info_image;
+      }
+      if (effectiveSections.btu_info_image !== undefined) {
+        effectiveSections.btu_info_shared = true;
+      }
+    } else {
+      delete effectiveSections.btu_info_image;
+      // If user unchecked sharing on an existing file without uploading a new one, unshare it from siblings that had the same file
+      if (
+        sections.btu_info_shared !== undefined &&
+        prodRow.btu_info_image &&
+        subcategoryId
+      ) {
+        await query(
+          `update products set btu_info_image = null, updated_at = now()
+           where subcategory_id = $1 and id != $2 and btu_info_image = $3 and deleted_at is null`,
+          [subcategoryId, productId, prodRow.btu_info_image],
+        );
+      }
     }
-    if (
-      effectiveSections.combinations_info_file === undefined &&
-      prodRow.combinations_info_file &&
-      String(prodRow.combinations_info_file).trim()
-    ) {
-      effectiveSections.combinations_info_file = prodRow.combinations_info_file;
+
+    if (combShared) {
+      if (
+        effectiveSections.combinations_info_file === undefined &&
+        prodRow.combinations_info_file &&
+        String(prodRow.combinations_info_file).trim()
+      ) {
+        effectiveSections.combinations_info_file =
+          prodRow.combinations_info_file;
+      }
+      if (effectiveSections.combinations_info_file !== undefined) {
+        effectiveSections.combinations_info_shared = true;
+      }
+    } else {
+      delete effectiveSections.combinations_info_file;
+      if (
+        sections.combinations_info_shared !== undefined &&
+        prodRow.combinations_info_file &&
+        subcategoryId
+      ) {
+        await query(
+          `update products set combinations_info_file = null, updated_at = now()
+           where subcategory_id = $1 and id != $2 and combinations_info_file = $3 and deleted_at is null`,
+          [subcategoryId, productId, prodRow.combinations_info_file],
+        );
+      }
+    }
+
+    if (!docsShared) {
+      delete effectiveSections.documents;
+    } else if (effectiveSections.documents !== undefined) {
+      effectiveSections.documents_shared = true;
     }
 
     const allowedKeys = [
@@ -236,6 +298,9 @@ async function syncSubcategorySections(productId, sections = {}) {
       "strong_points",
       "btu_info_image",
       "combinations_info_file",
+      "btu_info_shared",
+      "combinations_info_shared",
+      "documents_shared",
     ];
     const sets = [];
     const vals = [];
@@ -243,7 +308,8 @@ async function syncSubcategorySections(productId, sections = {}) {
     for (const key of allowedKeys) {
       if (effectiveSections[key] !== undefined) {
         vals.push(
-          typeof effectiveSections[key] === "string"
+          typeof effectiveSections[key] === "boolean" ||
+            typeof effectiveSections[key] === "string"
             ? effectiveSections[key]
             : effectiveSections[key] === null
               ? null
@@ -275,8 +341,8 @@ async function syncSubcategorySections(productId, sections = {}) {
 
     // If this product itself is missing any subcategory-level section/file (and wasn't explicitly cleared), inherit from siblings
     if (
-      effectiveSections.btu_info_image !== null &&
-      effectiveSections.combinations_info_file !== null
+      sections.btu_info_image !== null &&
+      sections.combinations_info_file !== null
     ) {
       await inheritSubcategorySections(productId);
     }
@@ -292,7 +358,7 @@ async function syncSubcategorySections(productId, sections = {}) {
 async function inheritSubcategorySections(productId) {
   try {
     const pRes = await query(
-      "select subcategory_id, category, features, certifications, documents, strong_points, btu_info_image, combinations_info_file from products where id = $1",
+      "select subcategory_id, category, features, certifications, documents, strong_points, btu_info_image, combinations_info_file, btu_info_shared, combinations_info_shared, documents_shared from products where id = $1",
       [productId],
     );
     if (!pRes.rows.length) return;
@@ -301,7 +367,8 @@ async function inheritSubcategorySections(productId) {
     if (!subcatId) return;
 
     const siblingRes = await query(
-      `select features, certifications, documents, strong_points, btu_info_image, combinations_info_file
+      `select features, certifications, documents, strong_points, btu_info_image, combinations_info_file,
+              btu_info_shared, combinations_info_shared, documents_shared
        from products
        where subcategory_id = $1 and id != $2 and deleted_at is null
        order by updated_at desc nulls last, id desc limit 10`,
@@ -319,8 +386,15 @@ async function inheritSubcategorySections(productId) {
       "btu_info_image",
       "combinations_info_file",
     ];
+    const sharedFlagByKey = {
+      documents: "documents_shared",
+      btu_info_image: "btu_info_shared",
+      combinations_info_file: "combinations_info_shared",
+    };
 
     for (const key of keys) {
+      const sharedCol = sharedFlagByKey[key];
+      if (sharedCol && prod[sharedCol] === false) continue;
       const currentVal = prod[key];
       const isEmpty =
         !currentVal ||
@@ -328,7 +402,11 @@ async function inheritSubcategorySections(productId) {
         String(currentVal).trim().length <= 4;
       if (isEmpty) {
         const siblingWithVal = siblingRes.rows.find(
-          (s) => s[key] && s[key] !== "[]" && String(s[key]).trim().length > 4,
+          (s) =>
+            (!sharedCol || s[sharedCol] !== false) &&
+            s[key] &&
+            s[key] !== "[]" &&
+            String(s[key]).trim().length > 4,
         );
         if (siblingWithVal) {
           vals.push(siblingWithVal[key]);
@@ -363,7 +441,19 @@ async function syncExistingSubcategorySections() {
       "btu_info_image",
       "combinations_info_file",
     ];
+    const sharedFlagByKey = {
+      documents: "documents_shared",
+      btu_info_image: "btu_info_shared",
+      combinations_info_file: "combinations_info_shared",
+    };
     for (const key of allowedKeys) {
+      const sharedCol = sharedFlagByKey[key];
+      const sharedCond = sharedCol
+        ? `and coalesce(${sharedCol}, true) = true`
+        : "";
+      const targetSharedCond = sharedCol
+        ? `and coalesce(p.${sharedCol}, true) = true`
+        : "";
       await query(`
         update products p
         set ${key} = src.${key}, updated_at = now()
@@ -372,6 +462,7 @@ async function syncExistingSubcategorySections() {
           from products
           where deleted_at is null
             and subcategory_id is not null
+            ${sharedCond}
             and ${key} is not null
             and length(trim(${key})) > 4
             and trim(${key}) != '[]'
@@ -379,6 +470,7 @@ async function syncExistingSubcategorySections() {
         ) src
         where p.subcategory_id = src.subcategory_id
           and p.deleted_at is null
+          ${targetSharedCond}
           and (p.${key} is null or length(trim(p.${key})) <= 4 or trim(p.${key}) = '[]')
       `);
     }
@@ -404,7 +496,9 @@ const productSelect = `
 		) as strong_points,
 		coalesce(
 			nullif(nullif(p.documents, ''), '[]'),
-			(select p2.documents from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.documents is not null and length(trim(p2.documents)) > 4 order by p2.id desc limit 1)
+			case when coalesce(p.documents_shared, true) = true then
+				(select p2.documents from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and coalesce(p2.documents_shared, true) = true and p2.documents is not null and length(trim(p2.documents)) > 4 order by p2.updated_at desc nulls last, p2.id desc limit 1)
+			else null end
 		) as documents,
 		coalesce(
 			nullif(nullif(p.certifications, ''), '[]'),
@@ -416,11 +510,15 @@ const productSelect = `
 		) as features,
 		coalesce(
 			nullif(trim(p.btu_info_image), ''),
-			(select p2.btu_info_image from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.btu_info_image is not null and length(trim(p2.btu_info_image)) > 0 order by p2.updated_at desc nulls last, p2.id desc limit 1)
+			case when coalesce(p.btu_info_shared, true) = true then
+				(select p2.btu_info_image from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and coalesce(p2.btu_info_shared, true) = true and p2.btu_info_image is not null and length(trim(p2.btu_info_image)) > 0 order by p2.updated_at desc nulls last, p2.id desc limit 1)
+			else null end
 		) as btu_info_image,
 		coalesce(
 			nullif(trim(p.combinations_info_file), ''),
-			(select p2.combinations_info_file from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.combinations_info_file is not null and length(trim(p2.combinations_info_file)) > 0 order by p2.updated_at desc nulls last, p2.id desc limit 1)
+			case when coalesce(p.combinations_info_shared, true) = true then
+				(select p2.combinations_info_file from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and coalesce(p2.combinations_info_shared, true) = true and p2.combinations_info_file is not null and length(trim(p2.combinations_info_file)) > 0 order by p2.updated_at desc nulls last, p2.id desc limit 1)
+			else null end
 		) as combinations_info_file
 	from products p
 	left join subcategories sc on sc.id = p.subcategory_id
@@ -752,6 +850,9 @@ function ensureWebCategorySchema() {
       "alter table products add column if not exists power varchar(100)",
       "alter table products add column if not exists btu_info_image varchar(500)",
       "alter table products add column if not exists combinations_info_file varchar(500)",
+      "alter table products add column if not exists btu_info_shared boolean not null default true",
+      "alter table products add column if not exists combinations_info_shared boolean not null default true",
+      "alter table products add column if not exists documents_shared boolean not null default true",
       "select setval(pg_get_serial_sequence('products', 'id'), greatest(coalesce((select max(id) from products), 1), 1), (select count(*) > 0 from products))",
       "select setval(pg_get_serial_sequence('product_images', 'id'), greatest(coalesce((select max(id) from product_images), 1), 1), (select count(*) > 0 from product_images))",
       "select setval(pg_get_serial_sequence('main_categories', 'id'), greatest(coalesce((select max(id) from main_categories), 1), 1), (select count(*) > 0 from main_categories))",
@@ -1160,12 +1261,26 @@ router.post(
       const uniqueSku = await ensureUniqueSku(
         req.body.product_code || req.body.sku || `WEB-${Date.now()}`,
       );
+      const btuInfoShared =
+        req.body.btu_info_shared !== undefined
+          ? bool(req.body.btu_info_shared)
+          : true;
+      const combinationsInfoShared =
+        req.body.combinations_info_shared !== undefined
+          ? bool(req.body.combinations_info_shared)
+          : true;
+      const documentsShared =
+        req.body.documents_shared !== undefined
+          ? bool(req.body.documents_shared)
+          : true;
       const result = await query(
         `insert into products
-			 (product_code, sku, name, category, product_type, power, btu_info_image, combinations_info_file, description, short_description, specs, features,
+			 (product_code, sku, name, category, product_type, power, btu_info_image, combinations_info_file,
+			  btu_info_shared, combinations_info_shared, documents_shared,
+			  description, short_description, specs, features,
 			  strong_points, documents, certifications, price_range,
 			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, stock, tracking, exceptions_type)
-			 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $21, $22::numeric, $22::int, $23, $24)
+			 values ($1, $2, $3, $4, $5, $6, $7, $8, $25, $26, $27, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $21, $22::numeric, $22::int, $23, $24)
 			 returning id`,
         [
           req.body.product_code || null,
@@ -1192,6 +1307,9 @@ router.post(
           stockAmount,
           req.body.tracking || "B",
           req.body.exceptions_type || "A",
+          btuInfoShared,
+          combinationsInfoShared,
+          documentsShared,
         ],
       );
       if (req.body.category)
@@ -1213,6 +1331,9 @@ router.post(
           certifications: req.body.certifications,
           btu_info_image: btuInfoImage || undefined,
           combinations_info_file: combinationsInfoFile || undefined,
+          btu_info_shared: btuInfoShared,
+          combinations_info_shared: combinationsInfoShared,
+          documents_shared: documentsShared,
         });
       } else {
         await inheritSubcategorySections(result.rows[0].id);
@@ -1300,6 +1421,18 @@ router.put(
         stock: Number(req.body.amount ?? req.body.stock ?? 0),
         tracking: req.body.tracking || "B",
         exceptions_type: req.body.exceptions_type || "A",
+        btu_info_shared:
+          req.body.btu_info_shared !== undefined
+            ? bool(req.body.btu_info_shared)
+            : undefined,
+        combinations_info_shared:
+          req.body.combinations_info_shared !== undefined
+            ? bool(req.body.combinations_info_shared)
+            : undefined,
+        documents_shared:
+          req.body.documents_shared !== undefined
+            ? bool(req.body.documents_shared)
+            : undefined,
       };
       if (primaryImage) {
         fields.image = primaryImage;
@@ -1342,6 +1475,9 @@ router.put(
         certifications: fields.certifications,
         btu_info_image: fields.btu_info_image,
         combinations_info_file: fields.combinations_info_file,
+        btu_info_shared: fields.btu_info_shared,
+        combinations_info_shared: fields.combinations_info_shared,
+        documents_shared: fields.documents_shared,
       });
 
       res.json({ message: "Product updated" });
@@ -2506,6 +2642,16 @@ router.put(
       if (req.body.is_visible !== undefined) {
         values.push(bool(req.body.is_visible));
         updates.push(`is_visible = $${values.length}`);
+      }
+      for (const boolKey of [
+        "btu_info_shared",
+        "combinations_info_shared",
+        "documents_shared",
+      ]) {
+        if (req.body[boolKey] !== undefined) {
+          values.push(bool(req.body[boolKey]));
+          updates.push(`${boolKey} = $${values.length}`);
+        }
       }
       if (
         req.body.product_code !== undefined &&
