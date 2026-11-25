@@ -205,7 +205,7 @@ async function assignCategoryPath(productId, rawCategory) {
 async function syncSubcategorySections(productId, sections = {}) {
   try {
     const pRes = await query(
-      "select subcategory_id, category, btu_info_image, combinations_info_file, btu_info_shared, combinations_info_shared, documents_shared from products where id = $1",
+      "select subcategory_id, category, btu_info_image, combinations_info_file, btu_info_shared, combinations_info_shared, documents_shared, features_shared from products where id = $1",
       [productId],
     );
     if (!pRes.rows.length) return;
@@ -225,11 +225,16 @@ async function syncSubcategorySections(productId, sections = {}) {
       sections.documents_shared !== undefined
         ? bool(sections.documents_shared)
         : prodRow.documents_shared !== false;
+    const featsShared =
+      sections.features_shared !== undefined
+        ? bool(sections.features_shared)
+        : prodRow.features_shared !== false;
 
     const effectiveSections = { ...sections };
     delete effectiveSections.btu_info_shared;
     delete effectiveSections.combinations_info_shared;
     delete effectiveSections.documents_shared;
+    delete effectiveSections.features_shared;
 
     if (btuShared) {
       if (
@@ -291,6 +296,12 @@ async function syncSubcategorySections(productId, sections = {}) {
       effectiveSections.documents_shared = true;
     }
 
+    if (!featsShared) {
+      delete effectiveSections.features;
+    } else if (effectiveSections.features !== undefined) {
+      effectiveSections.features_shared = true;
+    }
+
     const allowedKeys = [
       "features",
       "certifications",
@@ -301,6 +312,7 @@ async function syncSubcategorySections(productId, sections = {}) {
       "btu_info_shared",
       "combinations_info_shared",
       "documents_shared",
+      "features_shared",
     ];
     const sets = [];
     const vals = [];
@@ -358,7 +370,7 @@ async function syncSubcategorySections(productId, sections = {}) {
 async function inheritSubcategorySections(productId) {
   try {
     const pRes = await query(
-      "select subcategory_id, category, features, certifications, documents, strong_points, btu_info_image, combinations_info_file, btu_info_shared, combinations_info_shared, documents_shared from products where id = $1",
+      "select subcategory_id, category, features, certifications, documents, strong_points, btu_info_image, combinations_info_file, btu_info_shared, combinations_info_shared, documents_shared, features_shared from products where id = $1",
       [productId],
     );
     if (!pRes.rows.length) return;
@@ -368,7 +380,7 @@ async function inheritSubcategorySections(productId) {
 
     const siblingRes = await query(
       `select features, certifications, documents, strong_points, btu_info_image, combinations_info_file,
-              btu_info_shared, combinations_info_shared, documents_shared
+              btu_info_shared, combinations_info_shared, documents_shared, features_shared
        from products
        where subcategory_id = $1 and id != $2 and deleted_at is null
        order by updated_at desc nulls last, id desc limit 10`,
@@ -387,6 +399,7 @@ async function inheritSubcategorySections(productId) {
       "combinations_info_file",
     ];
     const sharedFlagByKey = {
+      features: "features_shared",
       documents: "documents_shared",
       btu_info_image: "btu_info_shared",
       combinations_info_file: "combinations_info_shared",
@@ -442,6 +455,7 @@ async function syncExistingSubcategorySections() {
       "combinations_info_file",
     ];
     const sharedFlagByKey = {
+      features: "features_shared",
       documents: "documents_shared",
       btu_info_image: "btu_info_shared",
       combinations_info_file: "combinations_info_shared",
@@ -506,7 +520,9 @@ const productSelect = `
 		) as certifications,
 		coalesce(
 			nullif(nullif(p.features, ''), '[]'),
-			(select p2.features from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and p2.features is not null and length(trim(p2.features)) > 4 order by p2.id desc limit 1)
+			case when coalesce(p.features_shared, true) = true then
+				(select p2.features from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and coalesce(p2.features_shared, true) = true and p2.features is not null and length(trim(p2.features)) > 4 order by p2.updated_at desc nulls last, p2.id desc limit 1)
+			else null end
 		) as features,
 		coalesce(
 			nullif(trim(p.btu_info_image), ''),
@@ -853,6 +869,7 @@ function ensureWebCategorySchema() {
       "alter table products add column if not exists btu_info_shared boolean not null default true",
       "alter table products add column if not exists combinations_info_shared boolean not null default true",
       "alter table products add column if not exists documents_shared boolean not null default true",
+      "alter table products add column if not exists features_shared boolean not null default true",
       "select setval(pg_get_serial_sequence('products', 'id'), greatest(coalesce((select max(id) from products), 1), 1), (select count(*) > 0 from products))",
       "select setval(pg_get_serial_sequence('product_images', 'id'), greatest(coalesce((select max(id) from product_images), 1), 1), (select count(*) > 0 from product_images))",
       "select setval(pg_get_serial_sequence('main_categories', 'id'), greatest(coalesce((select max(id) from main_categories), 1), 1), (select count(*) > 0 from main_categories))",
@@ -1273,14 +1290,18 @@ router.post(
         req.body.documents_shared !== undefined
           ? bool(req.body.documents_shared)
           : true;
+      const featuresShared =
+        req.body.features_shared !== undefined
+          ? bool(req.body.features_shared)
+          : true;
       const result = await query(
         `insert into products
 			 (product_code, sku, name, category, product_type, power, btu_info_image, combinations_info_file,
-			  btu_info_shared, combinations_info_shared, documents_shared,
+			  btu_info_shared, combinations_info_shared, documents_shared, features_shared,
 			  description, short_description, specs, features,
 			  strong_points, documents, certifications, price_range,
 			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, stock, tracking, exceptions_type)
-			 values ($1, $2, $3, $4, $5, $6, $7, $8, $25, $26, $27, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $21, $22::numeric, $22::int, $23, $24)
+			 values ($1, $2, $3, $4, $5, $6, $7, $8, $25, $26, $27, $28, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $21, $22::numeric, $22::int, $23, $24)
 			 returning id`,
         [
           req.body.product_code || null,
@@ -1310,6 +1331,7 @@ router.post(
           btuInfoShared,
           combinationsInfoShared,
           documentsShared,
+          featuresShared,
         ],
       );
       if (req.body.category)
@@ -1334,6 +1356,7 @@ router.post(
           btu_info_shared: btuInfoShared,
           combinations_info_shared: combinationsInfoShared,
           documents_shared: documentsShared,
+          features_shared: featuresShared,
         });
       } else {
         await inheritSubcategorySections(result.rows[0].id);
@@ -1433,6 +1456,10 @@ router.put(
           req.body.documents_shared !== undefined
             ? bool(req.body.documents_shared)
             : undefined,
+        features_shared:
+          req.body.features_shared !== undefined
+            ? bool(req.body.features_shared)
+            : undefined,
       };
       if (primaryImage) {
         fields.image = primaryImage;
@@ -1478,6 +1505,7 @@ router.put(
         btu_info_shared: fields.btu_info_shared,
         combinations_info_shared: fields.combinations_info_shared,
         documents_shared: fields.documents_shared,
+        features_shared: fields.features_shared,
       });
 
       res.json({ message: "Product updated" });
@@ -2647,6 +2675,7 @@ router.put(
         "btu_info_shared",
         "combinations_info_shared",
         "documents_shared",
+        "features_shared",
       ]) {
         if (req.body[boolKey] !== undefined) {
           values.push(bool(req.body[boolKey]));
