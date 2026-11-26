@@ -127,10 +127,35 @@ function formatPriceRange(price, listPrice, currentValue) {
   return null;
 }
 
-async function getOrCreateMainCategoryId(name) {
-  const normalized = String(name || "")
+function parseCategoryNameAndId(rawName) {
+  const normalized = String(rawName || "")
     .trim()
     .replace(/\s+/g, " ");
+  if (!normalized) return { name: "", id: null };
+  const idMatch = normalized.match(/^(.*?)\(\s*(?:id\s*[:#-]?\s*)?(\d+)\s*\)$/i);
+  if (idMatch) {
+    const parsedId = Number(idMatch[2]);
+    const cleanName = String(idMatch[1] || "")
+      .trim()
+      .replace(/\s+/g, " ");
+    return {
+      name: cleanName || normalized,
+      id: Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null,
+    };
+  }
+  return { name: normalized, id: null };
+}
+
+async function getOrCreateMainCategoryId(rawName) {
+  const { name: normalized, id: explicitId } = parseCategoryNameAndId(rawName);
+  if (!normalized && !explicitId) return null;
+  if (explicitId) {
+    const byId = await query(
+      "select id from main_categories where id = $1 limit 1",
+      [explicitId],
+    );
+    if (byId.rows[0]) return byId.rows[0].id;
+  }
   if (!normalized) return null;
   const exact = await query(
     "select id from main_categories where trim(name) = $1 limit 1",
@@ -149,11 +174,19 @@ async function getOrCreateMainCategoryId(name) {
   return inserted.rows[0].id;
 }
 
-async function getOrCreateSubcategoryId(mainCategoryId, name) {
-  const normalized = String(name || "")
-    .trim()
-    .replace(/\s+/g, " ");
-  if (!mainCategoryId || !normalized) return null;
+async function getOrCreateSubcategoryId(mainCategoryId, rawName) {
+  const { name: normalized, id: explicitId } = parseCategoryNameAndId(rawName);
+  if (!mainCategoryId || (!normalized && !explicitId)) return null;
+  if (explicitId) {
+    const byId = await query(
+      `select id from subcategories
+		 where id = $1 and main_category_id = $2
+		 limit 1`,
+      [explicitId, mainCategoryId],
+    );
+    if (byId.rows[0]) return byId.rows[0].id;
+  }
+  if (!normalized) return null;
   const exact = await query(
     `select id from subcategories
 		 where main_category_id = $1 and trim(name) = $2
@@ -190,11 +223,15 @@ async function assignCategoryPath(productId, rawCategory) {
   const subcategoryId = subName
     ? await getOrCreateSubcategoryId(mainCategoryId, subName)
     : null;
+  const cleanMainName = parseCategoryNameAndId(mainName).name || mainName;
+  const cleanSubName = subName
+    ? parseCategoryNameAndId(subName).name || subName
+    : null;
   await query(
     `update products
 		 set main_category_id = $1, subcategory_id = $2, category = $3
 		 where id = $4`,
-    [mainCategoryId, subcategoryId, subName || mainName, productId],
+    [mainCategoryId, subcategoryId, cleanSubName || cleanMainName, productId],
   );
 }
 
@@ -3139,15 +3176,46 @@ router.post(
               row.description || row["Përshkrimi i Plotë"] || shortDesc || "",
             ).trim() || null;
 
+          const rawMainCat = String(
+            row.main_category_name ||
+              row["Kategoria Kryesore"] ||
+              row.main_category ||
+              "",
+          ).trim();
+          const rawSubCat = String(
+            row.subcategory_name ||
+              row["Nënkategoria"] ||
+              row.subcategory ||
+              "",
+          ).trim();
+          const rawFullPath = String(
+            row.category_path_label || row["Shtegu i Plotë"] || "",
+          ).trim();
+          const fullPathSegments = splitCategoryPath(rawFullPath);
+          const mainHasExplicitId = /\(\s*(?:id\s*[:#-]?\s*)?\d+\s*\)\s*$/i.test(
+            rawMainCat,
+          );
+          const pathMainHasExplicitId =
+            fullPathSegments.length > 0 &&
+            /\(\s*(?:id\s*[:#-]?\s*)?\d+\s*\)\s*$/i.test(fullPathSegments[0]);
+          const effectiveMainCat = mainHasExplicitId
+            ? rawMainCat
+            : pathMainHasExplicitId
+              ? fullPathSegments[0]
+              : rawMainCat || fullPathSegments[0] || "";
+          const effectiveSubCat =
+            rawSubCat ||
+            (fullPathSegments.length > 1
+              ? fullPathSegments[fullPathSegments.length - 1]
+              : "");
           const catPath = String(
-            row.category_path_label ||
-              row["Shtegu i Plotë"] ||
-              (row.main_category_name && row.subcategory_name
-                ? `${row.main_category_name} -> ${row.subcategory_name}`
-                : row["Nënkategoria"] ||
-                  row.subcategory_name ||
+            effectiveMainCat && effectiveSubCat
+              ? `${effectiveMainCat} -> ${effectiveSubCat}`
+              : rawFullPath ||
+                  effectiveMainCat ||
+                  effectiveSubCat ||
                   row.category ||
-                  ""),
+                  "",
           ).trim();
 
           // Match product by ID or Code

@@ -20,6 +20,107 @@ if (!XLSX) {
   throw new Error("Could not load xlsx module");
 }
 
+function splitCategoryPath(rawValue) {
+  return String(rawValue || "")
+    .split(/->|\/|>/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function parseCategoryNameAndId(rawName) {
+  const normalized = String(rawName || "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!normalized) return { name: "", id: null };
+  const idMatch = normalized.match(/^(.*?)\(\s*(?:id\s*[:#-]?\s*)?(\d+)\s*\)$/i);
+  if (idMatch) {
+    const parsedId = Number(idMatch[2]);
+    const cleanName = String(idMatch[1] || "")
+      .trim()
+      .replace(/\s+/g, " ");
+    return {
+      name: cleanName || normalized,
+      id: Number.isFinite(parsedId) && parsedId > 0 ? parsedId : null,
+    };
+  }
+  return { name: normalized, id: null };
+}
+
+async function getOrCreateMainCategoryId(rawName) {
+  const { name: normalized, id: explicitId } = parseCategoryNameAndId(rawName);
+  if (!normalized && !explicitId) return null;
+  if (explicitId) {
+    const byId = await query(
+      "select id from main_categories where id = $1 limit 1",
+      [explicitId],
+    );
+    if (byId.rows[0]) return byId.rows[0].id;
+  }
+  if (!normalized) return null;
+  const exact = await query(
+    "select id from main_categories where trim(name) = $1 limit 1",
+    [normalized],
+  );
+  if (exact.rows[0]) return exact.rows[0].id;
+  const existing = await query(
+    "select id from main_categories where lower(trim(name)) = lower($1) limit 1",
+    [normalized],
+  );
+  if (existing.rows[0]) return existing.rows[0].id;
+  const inserted = await query(
+    "insert into main_categories (name) values ($1) returning id",
+    [normalized],
+  );
+  return inserted.rows[0].id;
+}
+
+async function getOrCreateSubcategoryId(mainCategoryId, rawName) {
+  const { name: normalized, id: explicitId } = parseCategoryNameAndId(rawName);
+  if (!mainCategoryId || (!normalized && !explicitId)) return null;
+  if (explicitId) {
+    const byId = await query(
+      "select id from subcategories where id = $1 and main_category_id = $2 limit 1",
+      [explicitId, mainCategoryId],
+    );
+    if (byId.rows[0]) return byId.rows[0].id;
+  }
+  if (!normalized) return null;
+  const exact = await query(
+    "select id from subcategories where main_category_id = $1 and trim(name) = $2 limit 1",
+    [mainCategoryId, normalized],
+  );
+  if (exact.rows[0]) return exact.rows[0].id;
+  const existing = await query(
+    "select id from subcategories where main_category_id = $1 and lower(trim(name)) = lower($2) limit 1",
+    [mainCategoryId, normalized],
+  );
+  if (existing.rows[0]) return existing.rows[0].id;
+  const inserted = await query(
+    "insert into subcategories (main_category_id, name) values ($1, $2) returning id",
+    [mainCategoryId, normalized],
+  );
+  return inserted.rows[0].id;
+}
+
+async function assignCategoryPath(productId, rawCategory) {
+  const segments = splitCategoryPath(rawCategory);
+  if (!segments.length) return;
+  const mainName = segments[0];
+  const subName = segments.length > 1 ? segments[segments.length - 1] : null;
+  const mainCategoryId = await getOrCreateMainCategoryId(mainName);
+  const subcategoryId = subName
+    ? await getOrCreateSubcategoryId(mainCategoryId, subName)
+    : null;
+  const cleanMainName = parseCategoryNameAndId(mainName).name || mainName;
+  const cleanSubName = subName
+    ? parseCategoryNameAndId(subName).name || subName
+    : null;
+  await query(
+    "update products set main_category_id = $1, subcategory_id = $2, category = $3 where id = $4",
+    [mainCategoryId, subcategoryId, cleanSubName || cleanMainName, productId],
+  );
+}
+
 async function run() {
   const filePath = process.argv[2] || "C:/Users/defri/OneDrive/Desktop/Puna/Gree/Produktet_Gree_Live.xlsx";
   console.log(`[Import] Reading file: ${filePath}`);
@@ -98,6 +199,48 @@ async function run() {
       const shortDesc = String(row.short_description || row["Përshkrimi i Shkurtër"] || "").trim() || null;
       const desc = String(row.description || row["Përshkrimi i Plotë"] || shortDesc || "").trim() || null;
 
+      const rawMainCat = String(
+        row.main_category_name ||
+          row["Kategoria Kryesore"] ||
+          row.main_category ||
+          "",
+      ).trim();
+      const rawSubCat = String(
+        row.subcategory_name ||
+          row["Nënkategoria"] ||
+          row.subcategory ||
+          "",
+      ).trim();
+      const rawFullPath = String(
+        row.category_path_label || row["Shtegu i Plotë"] || "",
+      ).trim();
+      const fullPathSegments = splitCategoryPath(rawFullPath);
+      const mainHasExplicitId = /\(\s*(?:id\s*[:#-]?\s*)?\d+\s*\)\s*$/i.test(
+        rawMainCat,
+      );
+      const pathMainHasExplicitId =
+        fullPathSegments.length > 0 &&
+        /\(\s*(?:id\s*[:#-]?\s*)?\d+\s*\)\s*$/i.test(fullPathSegments[0]);
+      const effectiveMainCat = mainHasExplicitId
+        ? rawMainCat
+        : pathMainHasExplicitId
+          ? fullPathSegments[0]
+          : rawMainCat || fullPathSegments[0] || "";
+      const effectiveSubCat =
+        rawSubCat ||
+        (fullPathSegments.length > 1
+          ? fullPathSegments[fullPathSegments.length - 1]
+          : "");
+      const catPath = String(
+        effectiveMainCat && effectiveSubCat
+          ? `${effectiveMainCat} -> ${effectiveSubCat}`
+          : rawFullPath ||
+              effectiveMainCat ||
+              effectiveSubCat ||
+              row.category ||
+              "",
+      ).trim();
+
       let targetId = null;
       if (id) {
         const check = await query("select id from products where id = $1 and deleted_at is null", [id]);
@@ -165,6 +308,9 @@ async function run() {
             targetId,
           ],
         );
+        if (catPath) {
+          await assignCategoryPath(targetId, catPath);
+        }
         updatedCount++;
       } else {
         if (!shouldCreateNew) {
@@ -205,6 +351,9 @@ async function run() {
             powerVal,
           ],
         );
+        if (catPath && insertRes.rows[0]?.id) {
+          await assignCategoryPath(insertRes.rows[0].id, catPath);
+        }
         createdCount++;
       }
     } catch (e) {

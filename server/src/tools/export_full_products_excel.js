@@ -42,6 +42,7 @@ async function run() {
 
   const sql = `
     select p.*,
+      mc.id as resolved_main_category_id,
       mc.name as main_category_name,
       sc.name as subcategory_name,
       coalesce(
@@ -77,8 +78,28 @@ async function run() {
   const res = await query(sql);
   const rows = res.rows;
 
+  // Detect main categories that share the same name case-insensitively (e.g. TRAJTIMI I AJRIT vs Trajtimi i Ajrit)
+  const mainNameIds = new Map();
+  for (const r of rows) {
+    const mName = String(r.main_category_name || "").trim().toLowerCase();
+    const mId = r.resolved_main_category_id;
+    if (mName && mId) {
+      if (!mainNameIds.has(mName)) mainNameIds.set(mName, new Set());
+      mainNameIds.get(mName).add(String(mId));
+    }
+  }
+
   const formatRow = (r) => {
-    const mainCat = r.main_category_name || "";
+    const rawMainCat = r.main_category_name || "";
+    const mainId = r.resolved_main_category_id;
+    const isDuplicateMainName =
+      rawMainCat &&
+      mainId &&
+      (mainNameIds.get(rawMainCat.trim().toLowerCase())?.size || 0) > 1;
+    const mainCat =
+      rawMainCat && mainId && isDuplicateMainName
+        ? `${rawMainCat} ( ${mainId} )`
+        : rawMainCat;
     const subCat = r.subcategory_name || r.category || "";
     const fullPath =
       mainCat && subCat ? `${mainCat} -> ${subCat}` : mainCat || subCat || "";
