@@ -524,6 +524,7 @@ const productSelect = `
 				(select p2.features from products p2 where p2.subcategory_id = p.subcategory_id and p2.deleted_at is null and coalesce(p2.features_shared, true) = true and p2.features is not null and length(trim(p2.features)) > 4 order by p2.updated_at desc nulls last, p2.id desc limit 1)
 			else null end
 		) as features,
+		p.features as own_features,
 		coalesce(
 			nullif(trim(p.btu_info_image), ''),
 			case when coalesce(p.btu_info_shared, true) = true then
@@ -2852,31 +2853,46 @@ router.put(
         }
       }
 
+      const isSingleTarget = targetProducts.length === 1;
+
       const findMatchedIcon = (fnLabel, fnKey, idx, ownIcons, ownFeatures) => {
         const normLabel = cleanText(fnLabel);
         const normKey = cleanText(fnKey);
 
-        const iconPools = [
-          { icons: ownIcons, features: ownFeatures },
-          { icons: subcatIcons, features: subcatOrderedIcons },
-        ];
+        const iconPools = isSingleTarget
+          ? [{ icons: ownIcons, features: ownFeatures }]
+          : [
+              { icons: ownIcons, features: ownFeatures },
+              { icons: subcatIcons, features: subcatOrderedIcons },
+            ];
 
         for (const pool of iconPools) {
           if (!pool.icons || pool.icons.length === 0) continue;
 
-          // Direct key or label match
+          // If icons on this product were uploaded without labels (e.g. batch icon upload), match by slot position first
+          const allLabelsEmpty = pool.icons.every((ex) => !cleanText(ex.label));
+          if (allLabelsEmpty && idx >= 0) {
+            const slotIcon = Array.isArray(pool.features)
+              ? pool.features[idx]?.icon || pool.features[idx]
+              : null;
+            if (slotIcon && typeof slotIcon === "string") {
+              return slotIcon;
+            }
+          }
+
+          // Direct label or custom key match
           for (const ex of pool.icons) {
             const exKey = cleanText(ex.key);
             const exLabel = cleanText(ex.label);
             if (
-              (exKey && (normKey === exKey || normLabel === exKey)) ||
-              (exLabel && normLabel === exLabel)
+              (exLabel && normLabel === exLabel) ||
+              (exLabel && exKey && (normKey === exKey || normLabel === exKey))
             ) {
               return ex.icon;
             }
           }
 
-          // Domain keyword rules
+          // Domain keyword rules (only against explicit labels, or keys when label is present)
           const rules = [
             { keys: ["sleep", "gjume"], match: ["sleep"] },
             { keys: ["qet", "silent"], match: ["silent", "qet"] },
@@ -2910,11 +2926,8 @@ router.put(
           for (const r of rules) {
             if (r.keys.some((k) => normLabel.includes(k))) {
               for (const ex of pool.icons) {
-                const exKey = cleanText(ex.key);
                 const exLabel = cleanText(ex.label);
-                if (
-                  r.match.some((m) => exKey.includes(m) || exLabel.includes(m))
-                ) {
+                if (exLabel && r.match.some((m) => exLabel.includes(m))) {
                   return ex.icon;
                 }
               }
