@@ -17,6 +17,7 @@ function ProductImageManager({ productId, images, onChanged }) {
   const { t } = useLang();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const [draggedIdx, setDraggedIdx] = useState(null);
 
   async function handleFileChange(e) {
     const file = e.target.files?.[0];
@@ -55,10 +56,47 @@ function ProductImageManager({ productId, images, onChanged }) {
     }
   }
 
+  async function handleMove(index, delta) {
+    const targetIndex = index + delta;
+    if (targetIndex < 0 || targetIndex >= images.length) return;
+    const newImages = [...images];
+    const [moved] = newImages.splice(index, 1);
+    newImages.splice(targetIndex, 0, moved);
+
+    setError("");
+    try {
+      await productImageApi.reorder(productId, newImages.map((img) => img.id));
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleDrop(targetIndex) {
+    if (draggedIdx === null || draggedIdx === targetIndex) return;
+    const newImages = [...images];
+    const [moved] = newImages.splice(draggedIdx, 1);
+    newImages.splice(targetIndex, 0, moved);
+    setDraggedIdx(null);
+
+    setError("");
+    try {
+      await productImageApi.reorder(productId, newImages.map((img) => img.id));
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
     <div className="imgManager">
       <div className="imgManagerHeader">
-        <strong>{t("imagesLabel")}</strong>
+        <div>
+          <strong>{t("imagesLabel")}</strong>
+          <span style={{ fontSize: "0.76rem", color: "var(--text-muted)", marginLeft: "8px" }}>
+            (Zvarrit ose përdor shigjetat ← → për radhitje të personalizuar)
+          </span>
+        </div>
         <label className={`imgUploadBtn${uploading ? " disabled" : ""}`}>
           {uploading ? t("uploading") : t("addImage")}
           <input
@@ -75,10 +113,36 @@ function ProductImageManager({ productId, images, onChanged }) {
         <p className="meta">{t("noImages")}</p>
       ) : (
         <div className="imgManagerGrid">
-          {images.map((img) => (
-            <div key={img.id} className={`imgManagerItem${img.is_main ? " main" : ""}`}>
+          {images.map((img, idx) => (
+            <div
+              key={img.id}
+              className={`imgManagerItem${img.is_main ? " main" : ""}${draggedIdx === idx ? " dragging" : ""}`}
+              draggable
+              onDragStart={() => setDraggedIdx(idx)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleDrop(idx)}
+            >
               <img src={assetUrl(img.image_path)} alt="" />
+              <span className="imgOrderBadge">#{idx + 1}</span>
               {img.is_main && <span className="imgMainBadge">{t("setMain")}</span>}
+              <div className="imgOrderControls">
+                <button
+                  type="button"
+                  disabled={idx === 0}
+                  onClick={() => handleMove(idx, -1)}
+                  title="Zhvendos majtas"
+                >
+                  ←
+                </button>
+                <button
+                  type="button"
+                  disabled={idx === images.length - 1}
+                  onClick={() => handleMove(idx, 1)}
+                  title="Zhvendos djathtas"
+                >
+                  →
+                </button>
+              </div>
               <div className="imgManagerActions">
                 {!img.is_main && (
                   <button type="button" onClick={() => handleSetMain(img.id)}>
