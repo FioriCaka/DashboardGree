@@ -905,6 +905,7 @@ function ensureWebCategorySchema() {
       "alter table products alter column scop type varchar(50)",
       "alter table products add column if not exists product_type varchar(150)",
       "alter table products add column if not exists power varchar(100)",
+      "alter table products add column if not exists product_trait varchar(150)",
       "alter table products add column if not exists btu_info_image varchar(500)",
       "alter table products add column if not exists combinations_info_file varchar(500)",
       "alter table products add column if not exists btu_info_shared boolean not null default true",
@@ -1337,12 +1338,12 @@ router.post(
           : true;
       const result = await query(
         `insert into products
-			 (product_code, sku, name, category, product_type, power, btu_info_image, combinations_info_file,
+			 (product_code, sku, name, category, product_type, power, product_trait, btu_info_image, combinations_info_file,
 			  btu_info_shared, combinations_info_shared, documents_shared, features_shared,
 			  description, short_description, specs, features,
 			  strong_points, documents, certifications, price_range,
 			  is_featured, is_visible, image, main_image, price, list_price, old_price, amount, stock, tracking, exceptions_type)
-			 values ($1, $2, $3, $4, $5, $6, $7, $8, $25, $26, $27, $28, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $21, $22::numeric, $22::int, $23, $24)
+			 values ($1, $2, $3, $4, $5, $6, $29, $7, $8, $25, $26, $27, $28, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $21, $22::numeric, $22::int, $23, $24)
 			 returning id`,
         [
           req.body.product_code || null,
@@ -1373,6 +1374,7 @@ router.post(
           combinationsInfoShared,
           documentsShared,
           featuresShared,
+          String(req.body.product_trait || "").trim() || null,
         ],
       );
       if (req.body.category)
@@ -1450,6 +1452,10 @@ router.put(
         power:
           req.body.power !== undefined
             ? String(req.body.power || "").trim() || null
+            : undefined,
+        product_trait:
+          req.body.product_trait !== undefined
+            ? String(req.body.product_trait || "").trim() || null
             : undefined,
         description: req.body.description || null,
         short_description:
@@ -3195,6 +3201,21 @@ router.post(
             )
               .trim()
               .slice(0, 100) || null;
+          const productTrait =
+            String(
+              getExcelCol(
+                "product_trait",
+                "Karakteristika",
+                "Faza",
+                "Veçoria",
+                "Vecoria",
+                "Trait",
+                "Phase",
+                "Karakteristika / Faza",
+              ),
+            )
+              .trim()
+              .slice(0, 150) || null;
           const shortDesc =
             String(
               row.short_description || row["Përshkrimi i Shkurtër"] || "",
@@ -3293,6 +3314,7 @@ router.post(
                     specs = coalesce(nullif($20, ''), specs),
                     product_type = coalesce($21, product_type),
                     power = coalesce($22, power),
+                    product_trait = coalesce($24, product_trait),
                     updated_at = now()
                 where id = $23`,
               [
@@ -3319,6 +3341,7 @@ router.post(
                 productType,
                 powerVal,
                 targetProductId,
+                productTrait,
               ],
             );
 
@@ -3341,8 +3364,8 @@ router.post(
               `insert into products
                 (product_code, model, sku, name, description, short_description, specs,
                  price, list_price, old_price, warranty_years, is_visible, is_featured,
-                 wifi_enabled, heating_cooling, stock, amount, in_store, energy_class, seer, scop, btu, product_type, power, tracking, exceptions_type)
-                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::int, $16::numeric, $17, $18, $19, $20, $21, $22, $23, 'B', 'A')
+                 wifi_enabled, heating_cooling, stock, amount, in_store, energy_class, seer, scop, btu, product_type, power, product_trait, tracking, exceptions_type)
+                values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::int, $16::numeric, $17, $18, $19, $20, $21, $22, $23, $24, 'B', 'A')
                 returning id`,
               [
                 code || null,
@@ -3368,6 +3391,7 @@ router.post(
                 btu,
                 productType,
                 powerVal,
+                productTrait,
               ],
             );
             const newId = insertRes.rows[0].id;

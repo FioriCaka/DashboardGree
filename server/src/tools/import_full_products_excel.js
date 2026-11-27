@@ -215,6 +215,7 @@ async function run() {
       };
       const productType = String(getExcelCol("product_type", "Tipi i Produktit", "Tipi i produktit", "Tipi", "Product Type")).trim().slice(0, 150) || null;
       const powerVal = String(getExcelCol("power", "Fuqia", "Power", "Kapaciteti")).trim().slice(0, 100) || null;
+      const productTrait = String(getExcelCol("product_trait", "Karakteristika", "Faza", "Veçoria", "Vecoria", "Trait", "Phase", "Karakteristika / Faza")).trim().slice(0, 150) || null;
       const shortDesc = String(row.short_description || row["Përshkrimi i Shkurtër"] || "").trim() || null;
       const desc = String(row.description || row["Përshkrimi i Plotë"] || shortDesc || "").trim() || null;
 
@@ -299,6 +300,7 @@ async function run() {
                specs = coalesce(nullif($20, ''), specs),
                product_type = coalesce($21, product_type),
                power = coalesce($22, power),
+               product_trait = coalesce($24, product_trait),
                updated_at = now()
            where id = $23`,
           [
@@ -325,6 +327,7 @@ async function run() {
             productType,
             powerVal,
             targetId,
+            productTrait,
           ],
         );
         if (catPath) {
@@ -341,8 +344,8 @@ async function run() {
           `insert into products
            (product_code, model, sku, name, description, short_description, specs,
             price, list_price, old_price, warranty_years, is_visible, is_featured,
-            wifi_enabled, heating_cooling, stock, in_store, energy_class, seer, scop, btu, product_type, power, tracking, exceptions_type)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'B', 'A')
+            wifi_enabled, heating_cooling, stock, in_store, energy_class, seer, scop, btu, product_type, power, product_trait, tracking, exceptions_type)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'B', 'A')
            returning id`,
           [
             code || null,
@@ -368,6 +371,7 @@ async function run() {
             btu,
             productType,
             powerVal,
+            productTrait,
           ],
         );
         if (catPath && insertRes.rows[0]?.id) {
