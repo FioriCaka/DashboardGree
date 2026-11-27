@@ -534,6 +534,9 @@ const productSelect = `
 	select p.*,
 		mc.name as main_category_name,
 		sc.name as subcategory_name,
+		sc.tagline as subcategory_tagline,
+		sc.short_description as subcategory_short_description,
+		sc.short_description_2 as subcategory_short_description_2,
 		coalesce(
 			(select pi.image_path from product_images pi where pi.product_id = p.id and pi.is_main = true limit 1),
 			(select pi.image_path from product_images pi where pi.product_id = p.id order by pi.position, pi.id limit 1),
