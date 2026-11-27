@@ -3154,17 +3154,42 @@ router.post(
             "",
           );
           const btu = rawBtu ? parseInt(rawBtu, 10) : null;
+          const getExcelCol = (...keys) => {
+            for (const k of keys) {
+              if (row[k] !== undefined && row[k] !== null && String(row[k]).trim() !== "") {
+                return row[k];
+              }
+            }
+            const normalizedKeys = keys.map((k) => String(k).trim().toLowerCase());
+            for (const [rk, rv] of Object.entries(row)) {
+              if (
+                normalizedKeys.includes(String(rk).trim().toLowerCase()) &&
+                rv !== undefined &&
+                rv !== null &&
+                String(rv).trim() !== ""
+              ) {
+                return rv;
+              }
+            }
+            return "";
+          };
+
           const productType =
             String(
-              row.product_type ||
-                row["Tipi i Produktit"] ||
-                row["Product Type"] ||
-                "",
+              getExcelCol(
+                "product_type",
+                "Tipi i Produktit",
+                "Tipi i produktit",
+                "Tipi",
+                "Product Type",
+              ),
             )
               .trim()
               .slice(0, 150) || null;
           const powerVal =
-            String(row.power || row["Fuqia"] || row["Power"] || "")
+            String(
+              getExcelCol("power", "Fuqia", "Power", "Kapaciteti"),
+            )
               .trim()
               .slice(0, 100) || null;
           const shortDesc =
