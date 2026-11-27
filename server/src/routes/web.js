@@ -3428,6 +3428,157 @@ router.post("/upload", ...adminOnly, upload.single("file"), (req, res) => {
   }
 });
 
+router.get(["/gree-global", "/web/gree-global"], async (_req, res, next) => {
+  try {
+    const upstreamRes = await fetch("https://global.gree.com/channels/140.html", {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      },
+    });
+    let html = await upstreamRes.text();
+
+    // Rewrite root-relative src/href/data-image/url(...) to https://global.gree.com/
+    // while keeping local page anchors like href="#distributorzone3" untouched
+    html = html
+      .replace(
+        /\b(src|href|data-image)=["']\/(?!\/)([^"']*)["']/gi,
+        '$1="https://global.gree.com/$2"',
+      )
+      .replace(
+        /url\(\s*["']?\/(?!\/)([^"')]+)["']?\s*\)/gi,
+        'url("https://global.gree.com/$1")',
+      );
+
+    // Pre-open Europe (#distributorzone3) and Albania (#collapse330) directly in the HTML
+    // 1. Remove default active class from North America tab & pane
+    html = html
+      .replace(
+        /<li role="presentation" class="active">(\s*<a href="#distributorzone1")/i,
+        '<li role="presentation">$1',
+      )
+      .replace(
+        /<li role="presentation">(\s*<a href="#distributorzone3")/i,
+        '<li role="presentation" class="active">$1',
+      )
+      .replace(
+        /<div role="tabpanel" class="tab-pane active" id="distributorzone1">/i,
+        '<div role="tabpanel" class="tab-pane" id="distributorzone1">',
+      )
+      .replace(
+        /<div role="tabpanel" class="tab-pane" id="distributorzone3">/i,
+        '<div role="tabpanel" class="tab-pane active" id="distributorzone3">',
+      )
+      .replace(
+        /src="https:\/\/global\.gree\.com\/upload\/images\/2021\/4\/8624f6d5259188a1\.png"/i,
+        'src="https://global.gree.com/upload/images/2021/4/81a3c7d3958388cd.png"',
+      )
+      .replace(
+        /<a class="collapsed" role="button" data-toggle="collapse" data-parent="#accordion" href="#collapse330"/i,
+        '<a role="button" data-toggle="collapse" data-parent="#accordion" href="#collapse330"',
+      )
+      .replace(
+        /<div id="collapse330" class="panel-collapse collapse"/i,
+        '<div id="collapse330" class="panel-collapse collapse in" style="height:auto;"',
+      );
+
+    // Highlight the E.G.S paragraph with an explicit ID so we can scroll directly to it
+    html = html.replace(
+      /(<p[^>]*>)\s*(E\.G\.S[\s\S]*?Gree Professional)\s*(<\/p>)/i,
+      '<p id="egs-gree-professional" style="white-space: normal; padding: 12px 14px; margin: 8px 0; line-height: 24px; color: #004ea2; font-weight: 800; font-size: 16px; background: #eff6ff; border-left: 4px solid #004ea2; border-radius: 4px;">$2</p>',
+    );
+
+    const injectedScriptAndStyle = `
+<style>
+  #egs-official-floating-bar {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999999;
+    background: #004ea2;
+    color: #ffffff;
+    padding: 10px 18px;
+    border-radius: 999px;
+    box-shadow: 0 10px 25px rgba(0, 78, 162, 0.35);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    white-space: nowrap;
+  }
+  #egs-official-floating-bar a {
+    background: #ffffff;
+    color: #004ea2 !important;
+    padding: 6px 14px;
+    border-radius: 999px;
+    text-decoration: none !important;
+    font-weight: 700;
+    font-size: 12px;
+    transition: opacity 0.2s;
+  }
+  #egs-official-floating-bar a:hover {
+    opacity: 0.92;
+  }
+  @media (max-width: 640px) {
+    #egs-official-floating-bar {
+      bottom: 12px;
+      padding: 8px 14px;
+      font-size: 11px;
+      max-width: 94vw;
+      white-space: normal;
+      text-align: center;
+    }
+  }
+</style>
+<div id="egs-official-floating-bar">
+  <span>Gree Global Official Distributor — Europe / Albania (E.G.S - Gree Professional)</span>
+  <a href="https://global.gree.com/channels/140.html" target="_top" rel="noopener noreferrer">
+    Hap në global.gree.com ↗
+  </a>
+</div>
+<script>
+  (function() {
+    function focusEgs() {
+      try {
+        if (window.jQuery) {
+          var $ = window.jQuery;
+          $('a[href="#distributorzone3"]').tab('show');
+          $('.distributor-map').attr('src', 'https://global.gree.com/upload/images/2021/4/81a3c7d3958388cd.png');
+          $('#collapse330').addClass('in').css('height', 'auto');
+        }
+        var target = document.getElementById('egs-gree-professional') || document.getElementById('distributor-30');
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } catch (e) {}
+    }
+    window.addEventListener('DOMContentLoaded', function() {
+      setTimeout(focusEgs, 150);
+      setTimeout(focusEgs, 600);
+    });
+    window.addEventListener('load', function() {
+      setTimeout(focusEgs, 200);
+    });
+  })();
+</script>
+`;
+
+    html = html.replace(/<\/body>/i, `${injectedScriptAndStyle}\n</body>`);
+
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;",
+    );
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(html);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get(["/download", "/web/download"], async (req, res, next) => {
   try {
     const rawFile = String(req.query.file || "").trim();
