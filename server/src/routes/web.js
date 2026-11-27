@@ -3482,11 +3482,16 @@ router.get(["/gree-global", "/web/gree-global"], async (_req, res, next) => {
         '<div id="collapse330" class="panel-collapse collapse in" style="height:auto;"',
       );
 
-    // Highlight the E.G.S paragraph with an explicit ID so we can scroll directly to it
-    html = html.replace(
-      /(<p[^>]*>)\s*(E\.G\.S[\s\S]*?Gree Professional)\s*(<\/p>)/i,
-      '<p id="egs-gree-professional" style="white-space: normal; padding: 12px 14px; margin: 8px 0; line-height: 24px; color: #004ea2; font-weight: 800; font-size: 16px; background: #eff6ff; border-left: 4px solid #004ea2; border-radius: 4px;">$2</p>',
-    );
+    // Highlight both Globe Shops shpk and E.G.S paragraphs with the same callout style
+    html = html
+      .replace(
+        /(<p[^>]*>)\s*(Globe Shops shpk)\s*(<\/p>)/i,
+        '<p id="globe-shops-shpk" style="white-space: normal; padding: 12px 14px; margin: 8px 0; line-height: 24px; color: #004ea2; font-weight: 800; font-size: 16px; background: #eff6ff; border-left: 4px solid #004ea2; border-radius: 4px;">$2</p>',
+      )
+      .replace(
+        /(<p[^>]*>)\s*(E\.G\.S[\s\S]*?Gree Professional)\s*(<\/p>)/i,
+        '<p id="egs-gree-professional" style="white-space: normal; padding: 12px 14px; margin: 8px 0; line-height: 24px; color: #004ea2; font-weight: 800; font-size: 16px; background: #eff6ff; border-left: 4px solid #004ea2; border-radius: 4px;">$2</p>',
+      );
 
     const injectedScriptAndStyle = `
 <style>
