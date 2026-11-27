@@ -215,7 +215,7 @@ async function run() {
       };
       const productType = String(getExcelCol("product_type", "Tipi i Produktit", "Tipi i produktit", "Tipi", "Product Type")).trim().slice(0, 150) || null;
       const powerVal = String(getExcelCol("power", "Fuqia", "Power", "Kapaciteti")).trim().slice(0, 100) || null;
-      const productTrait = String(getExcelCol("product_trait", "Karakteristika", "Faza", "Veçoria", "Vecoria", "Trait", "Phase", "Karakteristika / Faza")).trim().slice(0, 150) || null;
+      const productTrait = String(getExcelCol("product_trait", "Karakteristika")).trim().slice(0, 150) || null;
       const shortDesc = String(row.short_description || row["Përshkrimi i Shkurtër"] || "").trim() || null;
       const desc = String(row.description || row["Përshkrimi i Plotë"] || shortDesc || "").trim() || null;
 

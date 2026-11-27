@@ -125,7 +125,7 @@ async function run() {
       "Shtegu i Plotë": fullPath,
       "Tipi i Produktit": r.product_type || "",
       Fuqia: r.power || "",
-      "Karakteristika / Faza": r.product_trait || "",
+      Karakteristika: r.product_trait || "",
       "Shfaqet në Web": r.is_visible === false ? "JO" : "PO",
       "Çmimi (Lek)": Number(r.price || 0),
       "Çmimi i Vjetër (Lek)": Number(r.old_price || 0),

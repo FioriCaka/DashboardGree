@@ -3203,16 +3203,7 @@ router.post(
               .slice(0, 100) || null;
           const productTrait =
             String(
-              getExcelCol(
-                "product_trait",
-                "Karakteristika",
-                "Faza",
-                "Veçoria",
-                "Vecoria",
-                "Trait",
-                "Phase",
-                "Karakteristika / Faza",
-              ),
+              getExcelCol("product_trait", "Karakteristika"),
             )
               .trim()
               .slice(0, 150) || null;
